@@ -3,6 +3,7 @@ import http.client
 import json
 import tempfile
 import threading
+import urllib.parse
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -140,6 +141,18 @@ class ConfigAuthTests(unittest.TestCase):
             self.assertEqual(reloaded.get_download_dir(), target)
             with self.assertRaises(ValueError):
                 config.set_download_dir(Path("relative/path"))
+
+
+class IndexTemplateTests(unittest.TestCase):
+    def test_index_has_left_navigation_password_page_and_directory_dialog(self):
+        html = app.INDEX_HTML
+
+        self.assertIn('class="sidebar"', html)
+        self.assertIn('data-page="downloads"', html)
+        self.assertIn('data-page="paths"', html)
+        self.assertIn('data-page="password"', html)
+        self.assertIn('id="page-password"', html)
+        self.assertIn('id="dirDialog"', html)
 
 
 class JobManagementTests(unittest.TestCase):
@@ -283,6 +296,65 @@ class AuthHttpTests(unittest.TestCase):
                     headers={"Cookie": cookie},
                 )
                 self.assertEqual(status, 401)
+            finally:
+                server.shutdown()
+                server.server_close()
+
+    def test_directory_browser_requires_auth_and_lists_child_directories(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            downloads = root / "downloads"
+            downloads.mkdir()
+            (downloads / "movies").mkdir()
+            (downloads / "music").mkdir()
+            (downloads / "readme.txt").write_text("not a directory", encoding="utf-8")
+            config = app.ConfigStore(
+                root / "state",
+                default_download_dir=downloads,
+                default_user="admin",
+                default_password="admin123",
+            )
+            config.init()
+            store = JobStore(root / "state", config)
+            store.init()
+            auth = app.AuthManager(config, session_max_age_seconds=604800)
+            server = app.DownloadServer(("127.0.0.1", 0), app.RequestHandler, store, config, auth)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                port = server.server_address[1]
+                query_path = urllib.parse.quote(str(downloads))
+
+                status, _, _ = self.request(port, "GET", f"/api/fs/dirs?path={query_path}")
+                self.assertEqual(status, 401)
+
+                status, headers, _ = self.request(
+                    port,
+                    "POST",
+                    "/api/auth/login",
+                    {"username": "admin", "password": "admin123"},
+                )
+                self.assertEqual(status, 200)
+                cookie = headers["Set-Cookie"].split(";", 1)[0]
+
+                status, _, payload = self.request(
+                    port,
+                    "GET",
+                    f"/api/fs/dirs?path={query_path}",
+                    headers={"Cookie": cookie},
+                )
+
+                self.assertEqual(status, 200)
+                data = json.loads(payload)
+                self.assertEqual(Path(data["path"]), downloads.resolve())
+                self.assertEqual(Path(data["parent"]), downloads.parent.resolve())
+                self.assertEqual(
+                    [(item["name"], Path(item["path"])) for item in data["entries"]],
+                    [
+                        ("movies", (downloads / "movies").resolve()),
+                        ("music", (downloads / "music").resolve()),
+                    ],
+                )
             finally:
                 server.shutdown()
                 server.server_close()
