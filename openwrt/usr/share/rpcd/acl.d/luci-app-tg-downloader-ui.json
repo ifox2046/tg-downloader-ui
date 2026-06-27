@@ -1,0 +1,10 @@
+{
+	"luci-app-tg-downloader-ui": {
+		"description": "Grant access to the Telegram Download Manager LuCI link",
+		"read": {
+			"ubus": {
+				"luci": [ "getFeatures" ]
+			}
+		}
+	}
+}

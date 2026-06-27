@@ -1,0 +1,13 @@
+{
+	"admin/services/tg-downloader-ui": {
+		"title": "Telegram Downloads",
+		"order": 65,
+		"action": {
+			"type": "view",
+			"path": "tg-downloader-ui/link"
+		},
+		"depends": {
+			"acl": [ "luci-app-tg-downloader-ui" ]
+		}
+	}
+}

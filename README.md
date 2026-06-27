@@ -50,6 +50,15 @@ scp .\tg-downloader-ui.init root@192.168.31.157:/etc/init.d/tg-downloader-ui
 ssh root@192.168.31.157 "chmod +x /opt/tg-downloader-ui/app.py /opt/tg-downloader-ui/forwarder.py /etc/init.d/tg-downloader-ui && python3 -m py_compile /opt/tg-downloader-ui/app.py /opt/tg-downloader-ui/forwarder.py && python3 /opt/tg-downloader-ui/app.py --check && /etc/init.d/tg-downloader-ui restart"
 ```
 
+Install the LuCI menu link:
+
+```powershell
+scp -r .\openwrt root@192.168.31.157:/tmp/tg-downloader-ui-openwrt
+ssh root@192.168.31.157 "chmod +x /tmp/tg-downloader-ui-openwrt/install-luci-link.sh && /tmp/tg-downloader-ui-openwrt/install-luci-link.sh"
+```
+
+After installation, open OpenWRT LuCI and use `Services -> Telegram Downloads`.
+
 ## API
 
 Login and keep the session cookie:
