@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+
+.env
+*.db
+*.sqlite
+*.log
+
+.tmp*/
+downloads/
+telegram_session.txt
+tg_session.txt
