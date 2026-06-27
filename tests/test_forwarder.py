@@ -20,12 +20,55 @@ class ForwarderFormattingTests(unittest.TestCase):
             ),
         )
 
-        text = forwarder.format_forward_message(message)
+        text = forwarder.format_forward_message(message, source_label="Youyou0 Bot")
+        self.assertIn("Source: Youyou0 Bot", text)
 
         self.assertIn("片名：Demo Movie", text)
         self.assertIn("文件: Demo.Movie.mp4", text)
         self.assertIn("大小: 1.5 KB", text)
         self.assertIn("消息ID: 23311", text)
+
+    def test_load_forward_sources_reads_enabled_config_sources(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config_path = Path(tmp) / "config.json"
+            config_path.write_text(
+                json.dumps(
+                    {
+                        "sources": [
+                            {
+                                "id": "youxiu_bot",
+                                "label": "Youxiu Bot",
+                                "chat": "Youxiu_bot",
+                                "forward_source": "@Youxiu_bot",
+                                "enabled": True,
+                            },
+                            {
+                                "id": "youyou0_bot",
+                                "label": "Youyou0 Bot",
+                                "chat": "youyou0_bot",
+                                "forward_source": "@youyou0_bot",
+                                "enabled": True,
+                            },
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            sources = forwarder.load_forward_sources(config_path)
+
+            self.assertEqual(
+                [(source["id"], source["forward_source"]) for source in sources],
+                [("youxiu_bot", "@Youxiu_bot"), ("youyou0_bot", "@youyou0_bot")],
+            )
+
+    def test_format_forward_message_ignores_empty_message_even_with_source(self):
+        message = SimpleNamespace(id=23312, text="", media=None)
+
+        self.assertEqual(
+            forwarder.format_forward_message(message, source_label="Youyou0 Bot"),
+            "",
+        )
 
     def test_parse_proxy_url_for_telethon(self):
         self.assertEqual(

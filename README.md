@@ -6,7 +6,7 @@ Lightweight OpenWRT web UI for managing Telegram downloads with `tdl`.
 
 - Web UI: `http://192.168.31.157:9910`
 - Initial admin: `admin / admin123`
-- Chat: `Youxiu_bot`
+- Sources: `Youxiu_bot`, `youyou0_bot`
 - Download dir: `/mnt/sata1-5/telegram_downloads`
 - State dir: `/mnt/sata1-5/tg-downloader-ui`
 - tdl storage: `type=bolt,path=/root/.tdl/data`
@@ -46,8 +46,9 @@ Sync and restart:
 ```powershell
 scp .\tg_downloader_ui\app.py root@192.168.31.157:/opt/tg-downloader-ui/app.py
 scp .\tg_downloader_ui\forwarder.py root@192.168.31.157:/opt/tg-downloader-ui/forwarder.py
+scp .\tg_downloader_ui\sources.py root@192.168.31.157:/opt/tg-downloader-ui/sources.py
 scp .\tg-downloader-ui.init root@192.168.31.157:/etc/init.d/tg-downloader-ui
-ssh root@192.168.31.157 "chmod +x /opt/tg-downloader-ui/app.py /opt/tg-downloader-ui/forwarder.py /etc/init.d/tg-downloader-ui && python3 -m py_compile /opt/tg-downloader-ui/app.py /opt/tg-downloader-ui/forwarder.py && python3 /opt/tg-downloader-ui/app.py --check && /etc/init.d/tg-downloader-ui restart"
+ssh root@192.168.31.157 "chmod +x /opt/tg-downloader-ui/app.py /opt/tg-downloader-ui/forwarder.py /etc/init.d/tg-downloader-ui && python3 -m py_compile /opt/tg-downloader-ui/app.py /opt/tg-downloader-ui/forwarder.py /opt/tg-downloader-ui/sources.py && python3 /opt/tg-downloader-ui/app.py --check && /etc/init.d/tg-downloader-ui restart"
 ```
 
 Install the LuCI menu link:
@@ -79,7 +80,7 @@ Invoke-RestMethod -Uri 'http://192.168.31.157:9910/api/jobs' `
   -Method Post `
   -WebSession $session `
   -ContentType 'application/json' `
-  -Body '{"message_ids":[23311]}'
+  -Body '{"source_id":"youyou0_bot","message_ids":[23311]}'
 ```
 
 Update download directory:

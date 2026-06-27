@@ -28,6 +28,11 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
+try:  # Package import locally, flat import on OpenWRT deployment.
+    from .sources import DEFAULT_SOURCE_ID, DEFAULT_SOURCES, normalize_sources
+except ImportError:  # pragma: no cover - exercised by OpenWRT flat deployment
+    from sources import DEFAULT_SOURCE_ID, DEFAULT_SOURCES, normalize_sources
+
 
 APP_NAME = "tg-downloader-ui"
 DEFAULT_HOST = os.environ.get("TGDL_HOST", "0.0.0.0")
@@ -241,6 +246,17 @@ class ConfigStore:
                 self.data["download_dir"] = str(self.default_download_dir)
                 changed = True
 
+            sources, default_source_id = normalize_sources(
+                self.data.get("sources"),
+                self.data.get("default_source_id"),
+            )
+            if self.data.get("sources") != sources:
+                self.data["sources"] = sources
+                changed = True
+            if self.data.get("default_source_id") != default_source_id:
+                self.data["default_source_id"] = default_source_id
+                changed = True
+
             auth = self.data.setdefault("auth", {})
             if not auth.get("password_hash") or not auth.get("password_salt"):
                 hashed = hash_password(self.default_password)
@@ -277,6 +293,52 @@ class ConfigStore:
     def get_download_dir(self) -> Path:
         with self.lock:
             return Path(self.data.get("download_dir") or self.default_download_dir)
+
+    def list_sources(self) -> list[dict[str, Any]]:
+        with self.lock:
+            sources, _ = normalize_sources(
+                self.data.get("sources"),
+                self.data.get("default_source_id"),
+            )
+            return [dict(source) for source in sources]
+
+    def get_default_source_id(self) -> str:
+        with self.lock:
+            _, default_source_id = normalize_sources(
+                self.data.get("sources"),
+                self.data.get("default_source_id"),
+            )
+            return default_source_id
+
+    def get_default_source(self) -> dict[str, Any]:
+        return self.get_source(self.get_default_source_id())
+
+    def get_source(self, source_id: str | None = None) -> dict[str, Any]:
+        selected = str(source_id or self.get_default_source_id()).strip()
+        with self.lock:
+            sources, default_source_id = normalize_sources(
+                self.data.get("sources"),
+                self.data.get("default_source_id"),
+            )
+            selected = selected or default_source_id
+            for source in sources:
+                if source["id"] == selected:
+                    if not source.get("enabled", True):
+                        raise ValueError("source is disabled")
+                    return dict(source)
+        raise ValueError("source not found")
+
+    def set_sources(
+        self,
+        sources_value: Any,
+        default_source_id: str | None = None,
+    ) -> tuple[list[dict[str, Any]], str]:
+        sources, selected_default = normalize_sources(sources_value, default_source_id)
+        with self.lock:
+            self.data["sources"] = sources
+            self.data["default_source_id"] = selected_default
+            self.save()
+        return [dict(source) for source in sources], selected_default
 
     def set_download_dir(self, value: str | Path) -> Path:
         path = Path(value)
@@ -408,6 +470,9 @@ class JobStore:
                 CREATE TABLE IF NOT EXISTS jobs (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     message_id INTEGER NOT NULL,
+                    source_id TEXT NOT NULL DEFAULT '',
+                    source_label TEXT NOT NULL DEFAULT '',
+                    source_chat TEXT NOT NULL DEFAULT '',
                     status TEXT NOT NULL,
                     title TEXT NOT NULL DEFAULT '',
                     source_file TEXT NOT NULL DEFAULT '',
@@ -434,9 +499,25 @@ class JobStore:
             self.ensure_column(db, "download_dir", "download_dir TEXT NOT NULL DEFAULT ''")
             self.ensure_column(db, "process_pid", "process_pid INTEGER NOT NULL DEFAULT 0")
             self.ensure_column(db, "cancel_requested", "cancel_requested INTEGER NOT NULL DEFAULT 0")
+            self.ensure_column(db, "source_id", "source_id TEXT NOT NULL DEFAULT ''")
+            self.ensure_column(db, "source_label", "source_label TEXT NOT NULL DEFAULT ''")
+            self.ensure_column(db, "source_chat", "source_chat TEXT NOT NULL DEFAULT ''")
             db.execute(
                 "UPDATE jobs SET download_dir = ? WHERE download_dir = ''",
                 (str(self.config_store.get_download_dir()),),
+            )
+            default_source = self.config_store.get_default_source()
+            db.execute(
+                """
+                UPDATE jobs
+                SET source_id = ?, source_label = ?, source_chat = ?
+                WHERE source_id = '' OR source_chat = ''
+                """,
+                (
+                    str(default_source["id"]),
+                    str(default_source["label"]),
+                    str(default_source["chat"]),
+                ),
             )
             db.execute(
                 """
@@ -463,17 +544,32 @@ class JobStore:
         db.row_factory = sqlite3.Row
         return db
 
-    def create_job(self, message_id: int, download_dir: str | Path | None = None) -> dict[str, Any]:
+    def create_job(
+        self,
+        message_id: int,
+        download_dir: str | Path | None = None,
+        source_id: str | None = None,
+    ) -> dict[str, Any]:
         now = utcish_now()
         job_download_dir = str(Path(download_dir or self.config_store.get_download_dir()))
+        source = self.config_store.get_source(source_id)
         with self.lock, contextlib.closing(self.connect()) as db:
             cur = db.execute(
                 """
                 INSERT INTO jobs (
-                    message_id, status, download_dir, log_path, export_path, created_at, updated_at
-                ) VALUES (?, 'queued', ?, '', '', ?, ?)
+                    message_id, source_id, source_label, source_chat, status,
+                    download_dir, log_path, export_path, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, 'queued', ?, '', '', ?, ?)
                 """,
-                (message_id, job_download_dir, now, now),
+                (
+                    message_id,
+                    str(source["id"]),
+                    str(source["label"]),
+                    str(source["chat"]),
+                    job_download_dir,
+                    now,
+                    now,
+                ),
             )
             job_id = int(cur.lastrowid)
             log_path = str(self.logs_dir / f"{job_id}.log")
@@ -483,7 +579,7 @@ class JobStore:
                 (log_path, export_path, job_id),
             )
             db.commit()
-        self.append_log(job_id, f"Queued message {message_id}\n")
+        self.append_log(job_id, f"Queued message {message_id} from {source['label']}\n")
         return self.get_job(job_id) or {}
 
     def get_job(self, job_id: int) -> dict[str, Any] | None:
@@ -649,18 +745,20 @@ class DownloadWorker(threading.Thread):
         job_id = int(job["id"])
         message_id = int(job["message_id"])
         download_dir = Path(job.get("download_dir") or self.store.config_store.get_download_dir())
+        source_chat = str(job.get("source_chat") or self.store.config_store.get_default_source()["chat"])
+        source_label = str(job.get("source_label") or source_chat)
         download_dir.mkdir(parents=True, exist_ok=True)
         export_path = Path(job["export_path"])
         log_path = Path(job["log_path"])
         log_path.write_text("", encoding="utf-8")
 
-        self.store.append_log(job_id, f"Start message {message_id}\n")
+        self.store.append_log(job_id, f"Start message {message_id} from {source_label}\n")
         self.check_canceled(job_id)
         export_cmd = build_tdl_base_args() + [
             "chat",
             "export",
             "-c",
-            TDL_CHAT,
+            source_chat,
             "-T",
             "id",
             "-i",
@@ -949,9 +1047,10 @@ INDEX_HTML = r"""<!doctype html>
     h1 { font-size:22px; margin:0; letter-spacing:0; }
     h2 { font-size:16px; margin:0 0 12px; letter-spacing:0; }
     label { display:block; margin-bottom:6px; color:var(--muted); font-size:12px; font-weight:700; }
-    input, textarea { width:100%; border:1px solid var(--line); background:var(--panel); color:var(--text); border-radius:6px; padding:10px 11px; font-size:15px; outline:none; }
+    input, textarea, select { width:100%; border:1px solid var(--line); background:var(--panel); color:var(--text); border-radius:6px; padding:10px 11px; font-size:15px; outline:none; }
     textarea { min-height:72px; resize:vertical; line-height:1.4; }
-    input:focus, textarea:focus { border-color:var(--accent); box-shadow:0 0 0 3px rgba(40,115,95,.12); }
+    input[type=checkbox], input[type=radio] { width:auto; }
+    input:focus, textarea:focus, select:focus { border-color:var(--accent); box-shadow:0 0 0 3px rgba(40,115,95,.12); }
     button { border:0; border-radius:6px; background:var(--accent); color:#fff; min-height:40px; padding:0 14px; font-size:14px; font-weight:700; cursor:pointer; white-space:nowrap; }
     button.secondary { background:#e3e8df; color:var(--text); border:1px solid var(--line); }
     button.danger { background:var(--bad); color:#fff; }
@@ -970,7 +1069,7 @@ INDEX_HTML = r"""<!doctype html>
     .page { display:none; max-width:1280px; margin:0 auto; }
     .page.active { display:block; }
     .band { padding:16px 0; border-bottom:1px solid var(--line); }
-    .submit-band { display:grid; grid-template-columns:minmax(260px, 1fr) auto; gap:12px; align-items:stretch; }
+    .submit-band { display:grid; grid-template-columns:minmax(180px, .35fr) minmax(260px, 1fr) auto; gap:12px; align-items:end; }
     .form-row { display:grid; grid-template-columns:minmax(260px, 1fr) auto auto; gap:10px; align-items:end; }
     .password-grid { display:grid; grid-template-columns:minmax(220px, 1fr) minmax(220px, 1fr) auto; gap:10px; align-items:end; }
     .summary { display:flex; gap:10px; flex-wrap:wrap; }
@@ -992,6 +1091,9 @@ INDEX_HTML = r"""<!doctype html>
     .bar { width:120px; height:8px; border-radius:999px; background:#dce2d8; overflow:hidden; }
     .bar > i { display:block; height:100%; background:var(--accent); width:0%; }
     .actions { display:flex; gap:7px; flex-wrap:wrap; }
+    .source-row { display:grid; grid-template-columns:minmax(130px, .8fr) minmax(150px, 1fr) minmax(160px, 1fr) auto auto auto; gap:10px; align-items:end; padding:10px 0; border-bottom:1px solid var(--line); }
+    .source-row:last-child { border-bottom:0; }
+    .check-row { display:flex; align-items:center; gap:7px; min-height:40px; color:var(--muted); font-size:13px; font-weight:700; }
     .log { margin-top:14px; border:1px solid var(--line); background:#101511; color:#dfe7dc; border-radius:6px; min-height:170px; max-height:380px; overflow:auto; padding:12px; white-space:pre-wrap; font:12px/1.5 Consolas, monospace; }
     .muted { color:var(--muted); }
     .message { min-height:20px; margin-top:8px; color:var(--muted); font-size:13px; }
@@ -1019,7 +1121,7 @@ INDEX_HTML = r"""<!doctype html>
       .sidebar-footer { margin-top:0; margin-left:auto; }
       .content { padding:0 14px 24px; }
       .content-header { align-items:flex-start; flex-direction:column; justify-content:center; padding:14px 0; }
-      .submit-band, .form-row, .password-grid, .path-toolbar { grid-template-columns:1fr; }
+      .submit-band, .form-row, .password-grid, .path-toolbar, .source-row { grid-template-columns:1fr; }
       .forwarder { grid-template-columns:1fr 1fr; }
       button { min-height:42px; }
     }
@@ -1032,6 +1134,7 @@ INDEX_HTML = r"""<!doctype html>
       <nav class="nav-list" aria-label="Main">
         <button class="nav-item active" data-page="downloads" type="button">Downloads</button>
         <button class="nav-item" data-page="paths" type="button">Paths</button>
+        <button class="nav-item" data-page="sources" type="button">Sources</button>
         <button class="nav-item" data-page="password" type="button">Password</button>
       </nav>
       <div class="sidebar-footer"><button class="secondary" id="logoutBtn" type="button">Logout</button></div>
@@ -1040,10 +1143,14 @@ INDEX_HTML = r"""<!doctype html>
       <header class="content-header"><h1 id="pageTitle">Downloads</h1><div class="top"><span id="userLabel"></span><span id="clock"></span></div></header>
 
       <section class="page active" id="page-downloads">
-        <section class="band submit-band"><textarea id="messageIds" aria-label="Message IDs" placeholder="23311"></textarea><button id="submitBtn" type="button">Queue</button></section>
+        <section class="band submit-band">
+          <div><label for="sourceSelect">Source</label><select id="sourceSelect"></select></div>
+          <textarea id="messageIds" aria-label="Message IDs" placeholder="23311"></textarea>
+          <button id="submitBtn" type="button">Queue</button>
+        </section>
         <section class="band"><h2>Forwarder</h2><div class="forwarder" id="forwarderStatus"></div></section>
         <section class="band summary" id="summary"></section>
-        <section class="band"><div class="table-wrap"><table><thead><tr><th>ID</th><th>Message</th><th>Status</th><th>Title</th><th>Progress</th><th>Speed</th><th>PID</th><th>Download Dir</th><th>File</th><th>Actions</th></tr></thead><tbody id="jobsBody"></tbody></table></div><pre class="log" id="logPanel"></pre></section>
+        <section class="band"><div class="table-wrap"><table><thead><tr><th>ID</th><th>Source</th><th>Message</th><th>Status</th><th>Title</th><th>Progress</th><th>Speed</th><th>PID</th><th>Download Dir</th><th>File</th><th>Actions</th></tr></thead><tbody id="jobsBody"></tbody></table></div><pre class="log" id="logPanel"></pre></section>
       </section>
 
       <section class="page" id="page-paths">
@@ -1055,6 +1162,15 @@ INDEX_HTML = r"""<!doctype html>
             <button id="saveConfigBtn" type="button">Save</button>
           </div>
           <div class="message" id="configMessage"></div>
+        </section>
+      </section>
+
+      <section class="page" id="page-sources">
+        <section class="band">
+          <h2>Sources</h2>
+          <div id="sourceList"></div>
+          <div class="actions"><button class="secondary" id="addSourceBtn" type="button">Add</button><button id="saveSourcesBtn" type="button">Save</button></div>
+          <div class="message" id="sourcesMessage"></div>
         </section>
       </section>
 
@@ -1093,17 +1209,26 @@ INDEX_HTML = r"""<!doctype html>
     let selectedJob = null;
     let currentDir = '';
     let currentDirParent = '';
-    const pageTitles = {downloads:'Downloads', paths:'Paths', password:'Password'};
+    let sources = [];
+    let defaultSourceId = '';
+    const pageTitles = {downloads:'Downloads', paths:'Paths', sources:'Sources', password:'Password'};
     function statusLabel(status) { const labels = {queued:'Queued', exporting:'Exporting', downloading:'Downloading', renaming:'Renaming', done:'Done', skipped:'Exists', failed:'Failed', canceled:'Canceled', running:'Running', stale:'Stale', missing:'Missing', unknown:'Unknown'}; return labels[status] || status; }
     function escapeHtml(value) { return String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[ch])); }
     async function api(path, options = {}) { const headers = {'Content-Type':'application/json', ...(options.headers || {})}; const res = await fetch(path, {...options, headers}); if (res.status === 401) { location.href = '/login'; throw new Error('authentication required'); } if (!res.ok) { const text = await res.text(); throw new Error(text || res.statusText); } const type = res.headers.get('Content-Type') || ''; return type.includes('application/json') ? res.json() : res.text(); }
     function showPage(name) { const next = pageTitles[name] ? name : 'downloads'; document.querySelectorAll('.page').forEach(page => page.classList.toggle('active', page.id === `page-${next}`)); document.querySelectorAll('.nav-item').forEach(btn => btn.classList.toggle('active', btn.dataset.page === next)); document.getElementById('pageTitle').textContent = pageTitles[next]; if (location.hash !== `#${next}`) { history.replaceState(null, '', `#${next}`); } }
     async function loadMe() { const data = await api('/api/auth/me'); document.getElementById('userLabel').textContent = data.username; }
     async function loadConfig() { const data = await api('/api/config'); document.getElementById('downloadDir').value = data.download_dir || ''; }
+    async function loadSources() { const data = await api('/api/sources'); sources = data.sources || []; defaultSourceId = data.default_source_id || ''; renderSourceOptions(); renderSources(); }
+    function sourceIdFrom(value) { return String(value || '').trim().replace(/^@/, '').toLowerCase().replace(/[^a-z0-9_]+/g, '_').replace(/^_+|_+$/g, '') || 'source'; }
+    function renderSourceOptions() { const select = document.getElementById('sourceSelect'); select.innerHTML = sources.filter(source => source.enabled !== false).map(source => `<option value="${escapeHtml(source.id)}">${escapeHtml(source.label)} (${escapeHtml(source.chat)})</option>`).join(''); select.value = defaultSourceId || (select.options[0] ? select.options[0].value : ''); }
+    function addSourceRow(source = {}, isDefault = false) { const row = document.createElement('div'); row.className = 'source-row'; row.dataset.sourceId = source.id || ''; row.innerHTML = `<div><label>Label</label><input data-field="label" value="${escapeHtml(source.label || '')}"></div><div><label>tdl chat</label><input data-field="chat" value="${escapeHtml(source.chat || '')}" placeholder="youyou0_bot"></div><div><label>Forward source</label><input data-field="forward_source" value="${escapeHtml(source.forward_source || '')}" placeholder="@youyou0_bot"></div><label class="check-row"><input data-field="enabled" type="checkbox" ${source.enabled === false ? '' : 'checked'}> Enabled</label><label class="check-row"><input data-field="default" name="defaultSource" type="radio" ${isDefault ? 'checked' : ''}> Default</label><button class="secondary" type="button" data-action="remove">Remove</button>`; row.querySelector('[data-action="remove"]').addEventListener('click', () => { if (document.querySelectorAll('.source-row').length > 1) { row.remove(); } }); document.getElementById('sourceList').appendChild(row); }
+    function renderSources() { const list = document.getElementById('sourceList'); list.innerHTML = ''; sources.forEach(source => addSourceRow(source, source.id === defaultSourceId)); if (!sources.length) { addSourceRow({}, true); } }
+    function collectSources() { const rows = Array.from(document.querySelectorAll('.source-row')); const items = rows.map(row => { const chat = row.querySelector('[data-field="chat"]').value.trim(); const id = row.dataset.sourceId || sourceIdFrom(chat || row.querySelector('[data-field="forward_source"]').value); return {id, label:row.querySelector('[data-field="label"]').value.trim() || id, chat, forward_source:row.querySelector('[data-field="forward_source"]').value.trim(), enabled:row.querySelector('[data-field="enabled"]').checked}; }); const defaultRow = rows.find(row => row.querySelector('[data-field="default"]').checked) || rows[0]; const defaultIndex = rows.indexOf(defaultRow); return {sources:items, default_source_id:items[defaultIndex] ? items[defaultIndex].id : ''}; }
+    async function saveSources() { const el = document.getElementById('sourcesMessage'); el.className = 'message'; try { const payload = collectSources(); const data = await api('/api/sources', {method:'PUT', body:JSON.stringify(payload)}); sources = data.sources || []; defaultSourceId = data.default_source_id || ''; renderSourceOptions(); renderSources(); el.textContent = 'Saved'; } catch (err) { el.className = 'message error'; el.textContent = err.message; } }
     async function saveConfig() { const el = document.getElementById('configMessage'); el.className = 'message'; try { await api('/api/config', {method:'PUT', body:JSON.stringify({download_dir:document.getElementById('downloadDir').value})}); el.textContent = 'Saved'; } catch (err) { el.className = 'message error'; el.textContent = err.message; } }
     async function changePassword() { const el = document.getElementById('passwordMessage'); el.className = 'message'; try { await api('/api/auth/password', {method:'POST', body:JSON.stringify({current_password:document.getElementById('currentPassword').value, new_password:document.getElementById('newPassword').value})}); location.href = '/login'; } catch (err) { el.className = 'message error'; el.textContent = err.message; } }
     async function logout() { await api('/api/auth/logout', {method:'POST', body:'{}'}); location.href = '/login'; }
-    async function submitJobs() { const btn = document.getElementById('submitBtn'); btn.disabled = true; try { await api('/api/jobs', {method:'POST', body:JSON.stringify({message_ids:document.getElementById('messageIds').value})}); document.getElementById('messageIds').value = ''; await refreshJobs(); } catch (err) { alert(err.message); } finally { btn.disabled = false; } }
+    async function submitJobs() { const btn = document.getElementById('submitBtn'); btn.disabled = true; try { await api('/api/jobs', {method:'POST', body:JSON.stringify({message_ids:document.getElementById('messageIds').value, source_id:document.getElementById('sourceSelect').value})}); document.getElementById('messageIds').value = ''; await refreshJobs(); } catch (err) { alert(err.message); } finally { btn.disabled = false; } }
     async function retryJob(id) { await api(`/api/jobs/${id}/retry`, {method:'POST', body:'{}'}); await refreshJobs(); }
     async function cancelJob(id) { await api(`/api/jobs/${id}/cancel`, {method:'POST', body:'{}'}); await refreshJobs(); }
     async function deleteJob(id) { await api(`/api/jobs/${id}`, {method:'DELETE'}); if (selectedJob === id) { selectedJob = null; document.getElementById('logPanel').textContent = ''; } await refreshJobs(); }
@@ -1115,13 +1240,15 @@ INDEX_HTML = r"""<!doctype html>
     function closeDirectoryDialog() { document.getElementById('dirDialog').classList.add('hidden'); }
     function selectCurrentDirectory() { if (currentDir) { document.getElementById('downloadDir').value = currentDir; } closeDirectoryDialog(); }
     function renderSummary(jobs) { const counts = jobs.reduce((acc, job) => { acc[job.status] = (acc[job.status] || 0) + 1; return acc; }, {}); const active = jobs.find(job => ['exporting','downloading','renaming'].includes(job.status)); const items = [['Active', active ? `#${active.id}` : '0'], ['Queued', counts.queued || 0], ['Complete', (counts.done || 0) + (counts.skipped || 0)], ['Failed', counts.failed || 0], ['Canceled', counts.canceled || 0]]; document.getElementById('summary').innerHTML = items.map(([label, value]) => `<div class="metric"><strong>${escapeHtml(value)}</strong><span>${label}</span></div>`).join(''); }
-    function renderForwarder(status) { const items = [['State', `<span class="status ${escapeHtml(status.state || 'unknown')}">${statusLabel(status.state || 'unknown')}</span>`], ['Source', escapeHtml(status.source || '')], ['Channel', escapeHtml(status.channel_title || status.channel_id || '')], ['Sent', escapeHtml(status.sent_count || 0)], ['Error', escapeHtml(status.last_error || '')]]; document.getElementById('forwarderStatus').innerHTML = items.map(([label, value]) => `<div class="metric"><strong>${value}</strong><span>${label}</span></div>`).join('') + '<button class="secondary" onclick="loadForwarderLog()">Log</button>'; }
-    function renderJobs(jobs) { const body = document.getElementById('jobsBody'); if (!jobs.length) { body.innerHTML = '<tr><td colspan="10" class="muted">No jobs</td></tr>'; return; } body.innerHTML = jobs.map(job => { const pct = Math.max(0, Math.min(100, Number(job.progress || 0))); const active = ['queued','exporting','downloading','renaming'].includes(job.status); const retry = ['failed','canceled'].includes(job.status) ? `<button class="secondary" onclick="retryJob(${job.id})">Retry</button>` : ''; const cancel = active ? `<button class="secondary" onclick="cancelJob(${job.id})">Cancel</button>` : ''; const remove = !['exporting','downloading','renaming'].includes(job.status) ? `<button class="danger" onclick="deleteJob(${job.id})">Delete</button>` : ''; return `<tr><td class="mono">#${job.id}</td><td class="mono">${job.message_id}</td><td><span class="status ${job.status}">${statusLabel(job.status)}</span></td><td class="title-cell">${escapeHtml(job.title || job.error || '')}</td><td><div class="bar"><i style="width:${pct}%"></i></div><span class="muted">${pct.toFixed(1)}%</span></td><td>${escapeHtml(job.speed || '')}</td><td class="mono">${job.process_pid || ''}</td><td class="path-cell">${escapeHtml(job.download_dir || '')}</td><td class="title-cell">${escapeHtml(job.final_path || job.source_file || '')}</td><td class="actions"><button class="secondary" onclick="loadLog(${job.id})">Log</button>${cancel}${retry}${remove}</td></tr>`; }).join(''); }
+    function renderForwarder(status) { const sourceText = status.source_count ? `${status.source_count} enabled` : (status.source || ''); const items = [['State', `<span class="status ${escapeHtml(status.state || 'unknown')}">${statusLabel(status.state || 'unknown')}</span>`], ['Sources', escapeHtml(sourceText)], ['Last source', escapeHtml(status.last_source || '')], ['Sent', escapeHtml(status.sent_count || 0)], ['Error', escapeHtml(status.last_error || '')]]; document.getElementById('forwarderStatus').innerHTML = items.map(([label, value]) => `<div class="metric"><strong>${value}</strong><span>${label}</span></div>`).join('') + '<button class="secondary" onclick="loadForwarderLog()">Log</button>'; }
+    function renderJobs(jobs) { const body = document.getElementById('jobsBody'); if (!jobs.length) { body.innerHTML = '<tr><td colspan="11" class="muted">No jobs</td></tr>'; return; } body.innerHTML = jobs.map(job => { const pct = Math.max(0, Math.min(100, Number(job.progress || 0))); const active = ['queued','exporting','downloading','renaming'].includes(job.status); const retry = ['failed','canceled'].includes(job.status) ? `<button class="secondary" onclick="retryJob(${job.id})">Retry</button>` : ''; const cancel = active ? `<button class="secondary" onclick="cancelJob(${job.id})">Cancel</button>` : ''; const remove = !['exporting','downloading','renaming'].includes(job.status) ? `<button class="danger" onclick="deleteJob(${job.id})">Delete</button>` : ''; return `<tr><td class="mono">#${job.id}</td><td>${escapeHtml(job.source_label || job.source_chat || '')}</td><td class="mono">${job.message_id}</td><td><span class="status ${job.status}">${statusLabel(job.status)}</span></td><td class="title-cell">${escapeHtml(job.title || job.error || '')}</td><td><div class="bar"><i style="width:${pct}%"></i></div><span class="muted">${pct.toFixed(1)}%</span></td><td>${escapeHtml(job.speed || '')}</td><td class="mono">${job.process_pid || ''}</td><td class="path-cell">${escapeHtml(job.download_dir || '')}</td><td class="title-cell">${escapeHtml(job.final_path || job.source_file || '')}</td><td class="actions"><button class="secondary" onclick="loadLog(${job.id})">Log</button>${cancel}${retry}${remove}</td></tr>`; }).join(''); }
     async function refreshJobs() { const data = await api('/api/jobs'); renderSummary(data.jobs); renderJobs(data.jobs); if (selectedJob) { document.getElementById('logPanel').textContent = await api(`/api/jobs/${selectedJob}/log`) || ''; } }
     async function refreshForwarder() { renderForwarder(await api('/api/forwarder/status')); }
     async function refreshAll() { await Promise.all([refreshJobs(), refreshForwarder()]); }
     document.querySelectorAll('.nav-item').forEach(btn => btn.addEventListener('click', () => showPage(btn.dataset.page)));
     document.getElementById('submitBtn').addEventListener('click', submitJobs);
+    document.getElementById('addSourceBtn').addEventListener('click', () => addSourceRow({}, false));
+    document.getElementById('saveSourcesBtn').addEventListener('click', saveSources);
     document.getElementById('saveConfigBtn').addEventListener('click', saveConfig);
     document.getElementById('browseDirBtn').addEventListener('click', openDirectoryDialog);
     document.getElementById('closeDirBtn').addEventListener('click', closeDirectoryDialog);
@@ -1135,7 +1262,7 @@ INDEX_HTML = r"""<!doctype html>
     document.addEventListener('keydown', event => { if (event.key === 'Escape') { closeDirectoryDialog(); } });
     setInterval(() => { document.getElementById('clock').textContent = new Date().toLocaleString(); }, 1000);
     showPage((location.hash || '#downloads').slice(1));
-    loadMe(); loadConfig(); refreshAll(); setInterval(refreshAll, 2500);
+    loadMe(); loadConfig(); loadSources(); refreshAll(); setInterval(refreshAll, 2500);
   </script>
 </body>
 </html>
@@ -1283,6 +1410,13 @@ class RequestHandler(BaseHTTPRequestHandler):
             return self.send_json({"username": self.config_store.get_username()})
         if parsed.path == "/api/config":
             return self.send_json({"download_dir": str(self.config_store.get_download_dir())})
+        if parsed.path == "/api/sources":
+            return self.send_json(
+                {
+                    "sources": self.config_store.list_sources(),
+                    "default_source_id": self.config_store.get_default_source_id(),
+                }
+            )
         if parsed.path == "/api/fs/dirs":
             try:
                 query = urllib.parse.parse_qs(parsed.query)
@@ -1355,7 +1489,11 @@ class RequestHandler(BaseHTTPRequestHandler):
             try:
                 payload = self.read_json()
                 message_ids = parse_message_ids(payload.get("message_ids"))
-                jobs = [self.store.create_job(message_id) for message_id in message_ids]
+                source_id = str(payload.get("source_id") or "")
+                jobs = [
+                    self.store.create_job(message_id, source_id=source_id)
+                    for message_id in message_ids
+                ]
                 return self.send_json({"jobs": jobs}, status=HTTPStatus.CREATED)
             except Exception as exc:  # noqa: BLE001 - API boundary
                 return self.send_error_text(HTTPStatus.BAD_REQUEST, str(exc))
@@ -1389,6 +1527,18 @@ class RequestHandler(BaseHTTPRequestHandler):
                     str(payload.get("download_dir") or "")
                 )
                 return self.send_json({"download_dir": str(download_dir)})
+            except Exception as exc:  # noqa: BLE001 - API boundary
+                return self.send_error_text(HTTPStatus.BAD_REQUEST, str(exc))
+        if parsed.path == "/api/sources":
+            try:
+                payload = self.read_json()
+                sources, default_source_id = self.config_store.set_sources(
+                    payload.get("sources"),
+                    str(payload.get("default_source_id") or ""),
+                )
+                return self.send_json(
+                    {"sources": sources, "default_source_id": default_source_id}
+                )
             except Exception as exc:  # noqa: BLE001 - API boundary
                 return self.send_error_text(HTTPStatus.BAD_REQUEST, str(exc))
         return self.send_error_text(HTTPStatus.NOT_FOUND, "not found")
