@@ -175,6 +175,43 @@ class IndexTemplateTests(unittest.TestCase):
         self.assertIn('id="page-password"', html)
         self.assertIn('id="dirDialog"', html)
 
+    def test_index_visible_labels_are_chinese_admin_console_copy(self):
+        html = app.INDEX_HTML
+
+        for label in [
+            "下载任务",
+            "路径设置",
+            "资源来源",
+            "密码管理",
+            "退出登录",
+            "提交下载",
+            "转发监控",
+            "选择目录",
+            "保存",
+        ]:
+            self.assertIn(label, html)
+
+        for old_label in [
+            ">Downloads<",
+            ">Paths<",
+            ">Sources<",
+            ">Password<",
+            ">Logout<",
+            ">Queue<",
+            ">Forwarder<",
+            ">Select Directory<",
+        ]:
+            self.assertNotIn(old_label, html)
+
+    def test_login_visible_labels_are_chinese(self):
+        html = app.LOGIN_HTML
+
+        for label in ["登录 - Telegram 下载管理", "Telegram 下载管理", "管理员", "密码", "登录"]:
+            self.assertIn(label, html)
+
+        for old_label in [">Admin<", ">Password<", ">Login<", "Login failed"]:
+            self.assertNotIn(old_label, html)
+
 
 class JobManagementTests(unittest.TestCase):
     def make_store(self, root):

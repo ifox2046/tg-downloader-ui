@@ -1035,52 +1035,61 @@ class DownloadWorker(threading.Thread):
 
 
 INDEX_HTML = r"""<!doctype html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Telegram Download Manager</title>
+  <title>Telegram 下载管理</title>
   <style>
-    :root { color-scheme: light; --bg:#f4f6f1; --panel:#fff; --line:#d8ded2; --text:#18201b; --muted:#667267; --accent:#28735f; --accent-2:#315f8a; --warn:#9a6a00; --bad:#b33b32; --good:#26734d; --soft:#edf1ea; --side:#17201b; --side-muted:#9cad9d; font-family: Arial, sans-serif; }
+    :root { color-scheme: light; --bg:#eef2f5; --panel:#fff; --panel-alt:#f8fafb; --line:#d7e0e5; --line-strong:#bdc8ce; --text:#182128; --muted:#63727d; --accent:#126a5b; --accent-dark:#0e584d; --warn:#8f6100; --bad:#b42318; --good:#1f7a4d; --soft:#f4f7f8; --side:#111820; --side-2:#17242d; --side-muted:#98aab6; --focus:rgba(18,106,91,.18); font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei","PingFang SC","Noto Sans SC",Arial,sans-serif; }
     * { box-sizing: border-box; }
-    body { margin:0; background:var(--bg); color:var(--text); }
-    h1 { font-size:22px; margin:0; letter-spacing:0; }
-    h2 { font-size:16px; margin:0 0 12px; letter-spacing:0; }
+    body { margin:0; min-height:100vh; min-height:100dvh; background:var(--bg); color:var(--text); font-size:14px; }
+    h1 { font-size:24px; margin:0; line-height:1.2; letter-spacing:0; }
+    h2 { font-size:16px; margin:0 0 12px; line-height:1.25; letter-spacing:0; }
     label { display:block; margin-bottom:6px; color:var(--muted); font-size:12px; font-weight:700; }
-    input, textarea, select { width:100%; border:1px solid var(--line); background:var(--panel); color:var(--text); border-radius:6px; padding:10px 11px; font-size:15px; outline:none; }
-    textarea { min-height:72px; resize:vertical; line-height:1.4; }
+    input, textarea, select { width:100%; border:1px solid var(--line-strong); background:var(--panel); color:var(--text); border-radius:6px; padding:10px 11px; font-size:14px; outline:none; box-shadow:0 1px 0 rgba(16,24,32,.03); }
+    textarea { min-height:74px; resize:vertical; line-height:1.45; }
     input[type=checkbox], input[type=radio] { width:auto; }
-    input:focus, textarea:focus, select:focus { border-color:var(--accent); box-shadow:0 0 0 3px rgba(40,115,95,.12); }
-    button { border:0; border-radius:6px; background:var(--accent); color:#fff; min-height:40px; padding:0 14px; font-size:14px; font-weight:700; cursor:pointer; white-space:nowrap; }
-    button.secondary { background:#e3e8df; color:var(--text); border:1px solid var(--line); }
+    input:focus, textarea:focus, select:focus { border-color:var(--accent); box-shadow:0 0 0 3px var(--focus); }
+    button { border:0; border-radius:6px; background:var(--accent); color:#fff; min-height:40px; padding:0 14px; font-size:14px; font-weight:700; cursor:pointer; white-space:nowrap; box-shadow:0 1px 0 rgba(16,24,32,.08); }
+    button:hover { background:var(--accent-dark); }
+    button:active { transform:translateY(1px); }
+    button.secondary { background:#f5f8f7; color:var(--text); border:1px solid var(--line-strong); }
+    button.secondary:hover { background:#e9efed; }
     button.danger { background:var(--bad); color:#fff; }
     button:disabled { opacity:.55; cursor:not-allowed; }
-    .app-shell { min-height:100vh; display:grid; grid-template-columns:220px minmax(0, 1fr); }
-    .sidebar { background:var(--side); color:#eef5ef; display:flex; flex-direction:column; padding:18px 14px; border-right:1px solid #0d130f; }
-    .brand { min-height:54px; display:flex; align-items:center; padding:0 10px 14px; border-bottom:1px solid rgba(255,255,255,.1); font-size:16px; font-weight:800; line-height:1.25; }
+    .app-shell { min-height:100vh; min-height:100dvh; display:grid; grid-template-columns:236px minmax(0, 1fr); }
+    .sidebar { background:linear-gradient(180deg,var(--side),var(--side-2)); color:#eef5f3; display:flex; flex-direction:column; padding:18px 14px; border-right:1px solid #0b1015; }
+    .brand { min-height:60px; display:flex; flex-direction:column; justify-content:center; gap:4px; padding:0 10px 16px; border-bottom:1px solid rgba(255,255,255,.1); font-size:17px; font-weight:800; line-height:1.2; }
+    .brand small { color:var(--side-muted); font-size:12px; font-weight:700; }
     .nav-list { display:flex; flex-direction:column; gap:6px; margin-top:16px; }
-    .nav-item { width:100%; justify-content:flex-start; text-align:left; background:transparent; color:var(--side-muted); border:1px solid transparent; min-height:42px; }
-    .nav-item.active, .nav-item:hover { color:#fff; background:#223329; border-color:rgba(255,255,255,.08); }
+    .nav-item { width:100%; justify-content:flex-start; text-align:left; background:transparent; color:var(--side-muted); border:1px solid transparent; min-height:42px; padding:0 12px; box-shadow:none; }
+    .nav-item.active, .nav-item:hover { color:#fff; background:#21323b; border-color:rgba(255,255,255,.1); }
+    .nav-item.active { box-shadow:inset 3px 0 0 var(--accent); }
     .sidebar-footer { margin-top:auto; display:flex; flex-direction:column; gap:10px; color:var(--side-muted); font-size:12px; }
     .sidebar-footer button { width:100%; }
+    .sidebar .secondary { background:rgba(255,255,255,.08); color:#eef5f3; border-color:rgba(255,255,255,.14); }
     .content { min-width:0; padding:0 24px 30px; }
-    .content-header { min-height:70px; display:flex; align-items:center; justify-content:space-between; gap:16px; border-bottom:1px solid var(--line); }
+    .content-header { min-height:72px; display:flex; align-items:center; justify-content:space-between; gap:16px; border-bottom:1px solid var(--line); }
     .top { display:flex; align-items:center; gap:10px; flex-wrap:wrap; color:var(--muted); font-size:13px; }
-    .page { display:none; max-width:1280px; margin:0 auto; }
+    .page { display:none; max-width:1360px; margin:0 auto; }
     .page.active { display:block; }
     .band { padding:16px 0; border-bottom:1px solid var(--line); }
-    .submit-band { display:grid; grid-template-columns:minmax(180px, .35fr) minmax(260px, 1fr) auto; gap:12px; align-items:end; }
+    .band-head { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:12px; }
+    .submit-band { display:grid; grid-template-columns:minmax(180px, .32fr) minmax(300px, 1fr) auto; gap:12px; align-items:end; }
     .form-row { display:grid; grid-template-columns:minmax(260px, 1fr) auto auto; gap:10px; align-items:end; }
     .password-grid { display:grid; grid-template-columns:minmax(220px, 1fr) minmax(220px, 1fr) auto; gap:10px; align-items:end; }
     .summary { display:flex; gap:10px; flex-wrap:wrap; }
-    .metric { min-width:146px; padding:10px 12px; border:1px solid var(--line); background:var(--panel); border-radius:6px; }
+    .metric { min-width:146px; padding:10px 12px; border:1px solid var(--line); background:var(--panel); border-radius:6px; box-shadow:0 1px 2px rgba(16,24,32,.03); }
     .metric strong { display:block; font-size:20px; line-height:1.2; overflow-wrap:anywhere; }
     .metric span { color:var(--muted); font-size:12px; }
     .forwarder { display:grid; grid-template-columns:repeat(5, minmax(120px, 1fr)) auto; gap:10px; align-items:stretch; }
-    table { width:100%; border-collapse:collapse; background:var(--panel); border:1px solid var(--line); }
+    table { width:100%; border-collapse:separate; border-spacing:0; background:var(--panel); border:1px solid var(--line); border-radius:6px; overflow:hidden; }
     th, td { padding:10px 9px; border-bottom:1px solid var(--line); text-align:left; vertical-align:middle; }
-    th { font-size:12px; color:var(--muted); background:var(--soft); font-weight:700; }
-    td { font-size:14px; }
+    th { font-size:12px; color:var(--muted); background:var(--soft); font-weight:800; }
+    td { font-size:13px; }
+    tbody tr:hover { background:#fbfcfd; }
+    tbody tr:last-child td { border-bottom:0; }
     .mono { font-family:Consolas, monospace; }
     .title-cell { max-width:320px; overflow-wrap:anywhere; }
     .path-cell { max-width:360px; overflow-wrap:anywhere; color:var(--muted); }
@@ -1088,10 +1097,11 @@ INDEX_HTML = r"""<!doctype html>
     .status.done, .status.skipped, .status.running { color:var(--good); background:#e3f1e9; }
     .status.failed, .status.canceled, .status.stale { color:var(--bad); background:#f7e5e2; }
     .status.downloading, .status.exporting, .status.renaming, .status.queued { color:var(--warn); background:#fff0c9; }
-    .bar { width:120px; height:8px; border-radius:999px; background:#dce2d8; overflow:hidden; }
+    .bar { width:120px; height:8px; border-radius:999px; background:#dde5e8; overflow:hidden; }
     .bar > i { display:block; height:100%; background:var(--accent); width:0%; }
     .actions { display:flex; gap:7px; flex-wrap:wrap; }
-    .source-row { display:grid; grid-template-columns:minmax(130px, .8fr) minmax(150px, 1fr) minmax(160px, 1fr) auto auto auto; gap:10px; align-items:end; padding:10px 0; border-bottom:1px solid var(--line); }
+    .actions button { min-height:32px; padding:0 10px; font-size:12px; }
+    .source-row { display:grid; grid-template-columns:minmax(140px, .8fr) minmax(150px, 1fr) minmax(160px, 1fr) auto auto auto; gap:10px; align-items:end; padding:10px 0; border-bottom:1px solid var(--line); }
     .source-row:last-child { border-bottom:0; }
     .check-row { display:flex; align-items:center; gap:7px; min-height:40px; color:var(--muted); font-size:13px; font-weight:700; }
     .log { margin-top:14px; border:1px solid var(--line); background:#101511; color:#dfe7dc; border-radius:6px; min-height:170px; max-height:380px; overflow:auto; padding:12px; white-space:pre-wrap; font:12px/1.5 Consolas, monospace; }
@@ -1099,9 +1109,9 @@ INDEX_HTML = r"""<!doctype html>
     .message { min-height:20px; margin-top:8px; color:var(--muted); font-size:13px; }
     .message.error { color:var(--bad); }
     .table-wrap { overflow-x:auto; }
-    .modal { position:fixed; inset:0; display:grid; place-items:center; background:rgba(11,16,13,.48); padding:20px; z-index:10; }
+    .modal { position:fixed; inset:0; display:grid; place-items:center; background:rgba(11,16,22,.48); padding:20px; z-index:10; }
     .modal.hidden { display:none; }
-    .dialog { width:min(760px, 100%); max-height:min(720px, calc(100vh - 40px)); display:flex; flex-direction:column; background:var(--panel); border:1px solid var(--line); border-radius:8px; overflow:hidden; }
+    .dialog { width:min(760px, 100%); max-height:min(720px, calc(100vh - 40px)); display:flex; flex-direction:column; background:var(--panel); border:1px solid var(--line); border-radius:8px; overflow:hidden; box-shadow:0 24px 80px rgba(16,24,32,.22); }
     .dialog-header, .dialog-footer { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:14px 16px; border-bottom:1px solid var(--line); }
     .dialog-footer { border-top:1px solid var(--line); border-bottom:0; justify-content:flex-end; }
     .dialog-body { padding:14px 16px; overflow:auto; }
@@ -1130,36 +1140,36 @@ INDEX_HTML = r"""<!doctype html>
 <body>
   <div class="app-shell">
     <aside class="sidebar">
-      <div class="brand">Telegram Downloads</div>
-      <nav class="nav-list" aria-label="Main">
-        <button class="nav-item active" data-page="downloads" type="button">Downloads</button>
-        <button class="nav-item" data-page="paths" type="button">Paths</button>
-        <button class="nav-item" data-page="sources" type="button">Sources</button>
-        <button class="nav-item" data-page="password" type="button">Password</button>
+      <div class="brand">TG 下载控制台<small>OpenWRT 管理</small></div>
+      <nav class="nav-list" aria-label="主菜单">
+        <button class="nav-item active" data-page="downloads" type="button">下载任务</button>
+        <button class="nav-item" data-page="paths" type="button">路径设置</button>
+        <button class="nav-item" data-page="sources" type="button">资源来源</button>
+        <button class="nav-item" data-page="password" type="button">密码管理</button>
       </nav>
-      <div class="sidebar-footer"><button class="secondary" id="logoutBtn" type="button">Logout</button></div>
+      <div class="sidebar-footer"><button class="secondary" id="logoutBtn" type="button">退出登录</button></div>
     </aside>
     <main class="content">
-      <header class="content-header"><h1 id="pageTitle">Downloads</h1><div class="top"><span id="userLabel"></span><span id="clock"></span></div></header>
+      <header class="content-header"><h1 id="pageTitle">下载任务</h1><div class="top"><span id="userLabel"></span><span id="clock"></span></div></header>
 
       <section class="page active" id="page-downloads">
         <section class="band submit-band">
-          <div><label for="sourceSelect">Source</label><select id="sourceSelect"></select></div>
-          <textarea id="messageIds" aria-label="Message IDs" placeholder="23311"></textarea>
-          <button id="submitBtn" type="button">Queue</button>
+          <div><label for="sourceSelect">资源来源</label><select id="sourceSelect"></select></div>
+          <div><label for="messageIds">消息 ID</label><textarea id="messageIds" aria-label="消息 ID" placeholder="23311"></textarea></div>
+          <button id="submitBtn" type="button">提交下载</button>
         </section>
-        <section class="band"><h2>Forwarder</h2><div class="forwarder" id="forwarderStatus"></div></section>
+        <section class="band"><h2>转发监控</h2><div class="forwarder" id="forwarderStatus"></div></section>
         <section class="band summary" id="summary"></section>
-        <section class="band"><div class="table-wrap"><table><thead><tr><th>ID</th><th>Source</th><th>Message</th><th>Status</th><th>Title</th><th>Progress</th><th>Speed</th><th>PID</th><th>Download Dir</th><th>File</th><th>Actions</th></tr></thead><tbody id="jobsBody"></tbody></table></div><pre class="log" id="logPanel"></pre></section>
+        <section class="band"><div class="band-head"><h2>任务列表</h2></div><div class="table-wrap"><table><thead><tr><th>任务</th><th>来源</th><th>消息</th><th>状态</th><th>片名/错误</th><th>进度</th><th>速度</th><th>PID</th><th>目录</th><th>文件</th><th>操作</th></tr></thead><tbody id="jobsBody"></tbody></table></div><pre class="log" id="logPanel"></pre></section>
       </section>
 
       <section class="page" id="page-paths">
         <section class="band">
-          <h2>Download Directory</h2>
+          <h2>下载目录</h2>
           <div class="form-row">
-            <div><label for="downloadDir">Current path</label><input id="downloadDir"></div>
-            <button class="secondary" id="browseDirBtn" type="button">Browse</button>
-            <button id="saveConfigBtn" type="button">Save</button>
+            <div><label for="downloadDir">当前路径</label><input id="downloadDir"></div>
+            <button class="secondary" id="browseDirBtn" type="button">选择目录</button>
+            <button id="saveConfigBtn" type="button">保存</button>
           </div>
           <div class="message" id="configMessage"></div>
         </section>
@@ -1167,20 +1177,20 @@ INDEX_HTML = r"""<!doctype html>
 
       <section class="page" id="page-sources">
         <section class="band">
-          <h2>Sources</h2>
+          <h2>资源来源</h2>
           <div id="sourceList"></div>
-          <div class="actions"><button class="secondary" id="addSourceBtn" type="button">Add</button><button id="saveSourcesBtn" type="button">Save</button></div>
+          <div class="actions"><button class="secondary" id="addSourceBtn" type="button">添加来源</button><button id="saveSourcesBtn" type="button">保存</button></div>
           <div class="message" id="sourcesMessage"></div>
         </section>
       </section>
 
       <section class="page" id="page-password">
         <section class="band">
-          <h2>Admin Password</h2>
+          <h2>密码管理</h2>
           <div class="password-grid">
-            <div><label for="currentPassword">Current password</label><input id="currentPassword" type="password" autocomplete="current-password"></div>
-            <div><label for="newPassword">New password</label><input id="newPassword" type="password" autocomplete="new-password"></div>
-            <button id="changePasswordBtn" type="button">Change</button>
+            <div><label for="currentPassword">当前密码</label><input id="currentPassword" type="password" autocomplete="current-password"></div>
+            <div><label for="newPassword">新密码</label><input id="newPassword" type="password" autocomplete="new-password"></div>
+            <button id="changePasswordBtn" type="button">修改密码</button>
           </div>
           <div class="message" id="passwordMessage"></div>
         </section>
@@ -1190,18 +1200,18 @@ INDEX_HTML = r"""<!doctype html>
 
   <div class="modal hidden" id="dirDialog" role="dialog" aria-modal="true" aria-labelledby="dirDialogTitle">
     <div class="dialog">
-      <div class="dialog-header"><h2 id="dirDialogTitle">Select Directory</h2><button class="secondary" id="closeDirBtn" type="button">Close</button></div>
+      <div class="dialog-header"><h2 id="dirDialogTitle">选择目录</h2><button class="secondary" id="closeDirBtn" type="button">关闭</button></div>
       <div class="dialog-body">
         <div class="path-toolbar">
-          <button class="secondary" id="dirParentBtn" type="button">Up</button>
-          <button class="secondary" id="dirRootBtn" type="button">Root</button>
-          <input id="dirDialogPath" aria-label="Directory path">
-          <button class="secondary" id="goDirBtn" type="button">Go</button>
+          <button class="secondary" id="dirParentBtn" type="button">上级</button>
+          <button class="secondary" id="dirRootBtn" type="button">根目录</button>
+          <input id="dirDialogPath" aria-label="目录路径">
+          <button class="secondary" id="goDirBtn" type="button">打开</button>
         </div>
         <div class="message" id="dirMessage"></div>
         <div class="dir-list" id="dirList"></div>
       </div>
-      <div class="dialog-footer"><button id="selectDirBtn" type="button">Use Current</button></div>
+      <div class="dialog-footer"><button id="selectDirBtn" type="button">使用当前目录</button></div>
     </div>
   </div>
 
@@ -1211,21 +1221,21 @@ INDEX_HTML = r"""<!doctype html>
     let currentDirParent = '';
     let sources = [];
     let defaultSourceId = '';
-    const pageTitles = {downloads:'Downloads', paths:'Paths', sources:'Sources', password:'Password'};
-    function statusLabel(status) { const labels = {queued:'Queued', exporting:'Exporting', downloading:'Downloading', renaming:'Renaming', done:'Done', skipped:'Exists', failed:'Failed', canceled:'Canceled', running:'Running', stale:'Stale', missing:'Missing', unknown:'Unknown'}; return labels[status] || status; }
+    const pageTitles = {downloads:'下载任务', paths:'路径设置', sources:'资源来源', password:'密码管理'};
+    function statusLabel(status) { const labels = {queued:'排队中', exporting:'导出中', downloading:'下载中', renaming:'重命名', done:'已完成', skipped:'已存在', failed:'失败', canceled:'已取消', running:'运行中', stale:'已失联', missing:'未启动', unknown:'未知'}; return labels[status] || status; }
     function escapeHtml(value) { return String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[ch])); }
-    async function api(path, options = {}) { const headers = {'Content-Type':'application/json', ...(options.headers || {})}; const res = await fetch(path, {...options, headers}); if (res.status === 401) { location.href = '/login'; throw new Error('authentication required'); } if (!res.ok) { const text = await res.text(); throw new Error(text || res.statusText); } const type = res.headers.get('Content-Type') || ''; return type.includes('application/json') ? res.json() : res.text(); }
+    async function api(path, options = {}) { const headers = {'Content-Type':'application/json', ...(options.headers || {})}; const res = await fetch(path, {...options, headers}); if (res.status === 401) { location.href = '/login'; throw new Error('需要登录'); } if (!res.ok) { const text = await res.text(); throw new Error(text || res.statusText); } const type = res.headers.get('Content-Type') || ''; return type.includes('application/json') ? res.json() : res.text(); }
     function showPage(name) { const next = pageTitles[name] ? name : 'downloads'; document.querySelectorAll('.page').forEach(page => page.classList.toggle('active', page.id === `page-${next}`)); document.querySelectorAll('.nav-item').forEach(btn => btn.classList.toggle('active', btn.dataset.page === next)); document.getElementById('pageTitle').textContent = pageTitles[next]; if (location.hash !== `#${next}`) { history.replaceState(null, '', `#${next}`); } }
     async function loadMe() { const data = await api('/api/auth/me'); document.getElementById('userLabel').textContent = data.username; }
     async function loadConfig() { const data = await api('/api/config'); document.getElementById('downloadDir').value = data.download_dir || ''; }
     async function loadSources() { const data = await api('/api/sources'); sources = data.sources || []; defaultSourceId = data.default_source_id || ''; renderSourceOptions(); renderSources(); }
     function sourceIdFrom(value) { return String(value || '').trim().replace(/^@/, '').toLowerCase().replace(/[^a-z0-9_]+/g, '_').replace(/^_+|_+$/g, '') || 'source'; }
     function renderSourceOptions() { const select = document.getElementById('sourceSelect'); select.innerHTML = sources.filter(source => source.enabled !== false).map(source => `<option value="${escapeHtml(source.id)}">${escapeHtml(source.label)} (${escapeHtml(source.chat)})</option>`).join(''); select.value = defaultSourceId || (select.options[0] ? select.options[0].value : ''); }
-    function addSourceRow(source = {}, isDefault = false) { const row = document.createElement('div'); row.className = 'source-row'; row.dataset.sourceId = source.id || ''; row.innerHTML = `<div><label>Label</label><input data-field="label" value="${escapeHtml(source.label || '')}"></div><div><label>tdl chat</label><input data-field="chat" value="${escapeHtml(source.chat || '')}" placeholder="youyou0_bot"></div><div><label>Forward source</label><input data-field="forward_source" value="${escapeHtml(source.forward_source || '')}" placeholder="@youyou0_bot"></div><label class="check-row"><input data-field="enabled" type="checkbox" ${source.enabled === false ? '' : 'checked'}> Enabled</label><label class="check-row"><input data-field="default" name="defaultSource" type="radio" ${isDefault ? 'checked' : ''}> Default</label><button class="secondary" type="button" data-action="remove">Remove</button>`; row.querySelector('[data-action="remove"]').addEventListener('click', () => { if (document.querySelectorAll('.source-row').length > 1) { row.remove(); } }); document.getElementById('sourceList').appendChild(row); }
+    function addSourceRow(source = {}, isDefault = false) { const row = document.createElement('div'); row.className = 'source-row'; row.dataset.sourceId = source.id || ''; row.innerHTML = `<div><label>名称</label><input data-field="label" value="${escapeHtml(source.label || '')}"></div><div><label>tdl 会话</label><input data-field="chat" value="${escapeHtml(source.chat || '')}" placeholder="youyou0_bot"></div><div><label>转发来源</label><input data-field="forward_source" value="${escapeHtml(source.forward_source || '')}" placeholder="@youyou0_bot"></div><label class="check-row"><input data-field="enabled" type="checkbox" ${source.enabled === false ? '' : 'checked'}> 启用</label><label class="check-row"><input data-field="default" name="defaultSource" type="radio" ${isDefault ? 'checked' : ''}> 默认</label><button class="secondary" type="button" data-action="remove">移除</button>`; row.querySelector('[data-action="remove"]').addEventListener('click', () => { if (document.querySelectorAll('.source-row').length > 1) { row.remove(); } }); document.getElementById('sourceList').appendChild(row); }
     function renderSources() { const list = document.getElementById('sourceList'); list.innerHTML = ''; sources.forEach(source => addSourceRow(source, source.id === defaultSourceId)); if (!sources.length) { addSourceRow({}, true); } }
     function collectSources() { const rows = Array.from(document.querySelectorAll('.source-row')); const items = rows.map(row => { const chat = row.querySelector('[data-field="chat"]').value.trim(); const id = row.dataset.sourceId || sourceIdFrom(chat || row.querySelector('[data-field="forward_source"]').value); return {id, label:row.querySelector('[data-field="label"]').value.trim() || id, chat, forward_source:row.querySelector('[data-field="forward_source"]').value.trim(), enabled:row.querySelector('[data-field="enabled"]').checked}; }); const defaultRow = rows.find(row => row.querySelector('[data-field="default"]').checked) || rows[0]; const defaultIndex = rows.indexOf(defaultRow); return {sources:items, default_source_id:items[defaultIndex] ? items[defaultIndex].id : ''}; }
-    async function saveSources() { const el = document.getElementById('sourcesMessage'); el.className = 'message'; try { const payload = collectSources(); const data = await api('/api/sources', {method:'PUT', body:JSON.stringify(payload)}); sources = data.sources || []; defaultSourceId = data.default_source_id || ''; renderSourceOptions(); renderSources(); el.textContent = 'Saved'; } catch (err) { el.className = 'message error'; el.textContent = err.message; } }
-    async function saveConfig() { const el = document.getElementById('configMessage'); el.className = 'message'; try { await api('/api/config', {method:'PUT', body:JSON.stringify({download_dir:document.getElementById('downloadDir').value})}); el.textContent = 'Saved'; } catch (err) { el.className = 'message error'; el.textContent = err.message; } }
+    async function saveSources() { const el = document.getElementById('sourcesMessage'); el.className = 'message'; try { const payload = collectSources(); const data = await api('/api/sources', {method:'PUT', body:JSON.stringify(payload)}); sources = data.sources || []; defaultSourceId = data.default_source_id || ''; renderSourceOptions(); renderSources(); el.textContent = '已保存'; } catch (err) { el.className = 'message error'; el.textContent = err.message; } }
+    async function saveConfig() { const el = document.getElementById('configMessage'); el.className = 'message'; try { await api('/api/config', {method:'PUT', body:JSON.stringify({download_dir:document.getElementById('downloadDir').value})}); el.textContent = '已保存'; } catch (err) { el.className = 'message error'; el.textContent = err.message; } }
     async function changePassword() { const el = document.getElementById('passwordMessage'); el.className = 'message'; try { await api('/api/auth/password', {method:'POST', body:JSON.stringify({current_password:document.getElementById('currentPassword').value, new_password:document.getElementById('newPassword').value})}); location.href = '/login'; } catch (err) { el.className = 'message error'; el.textContent = err.message; } }
     async function logout() { await api('/api/auth/logout', {method:'POST', body:'{}'}); location.href = '/login'; }
     async function submitJobs() { const btn = document.getElementById('submitBtn'); btn.disabled = true; try { await api('/api/jobs', {method:'POST', body:JSON.stringify({message_ids:document.getElementById('messageIds').value, source_id:document.getElementById('sourceSelect').value})}); document.getElementById('messageIds').value = ''; await refreshJobs(); } catch (err) { alert(err.message); } finally { btn.disabled = false; } }
@@ -1235,13 +1245,13 @@ INDEX_HTML = r"""<!doctype html>
     async function loadLog(id) { selectedJob = id; document.getElementById('logPanel').textContent = await api(`/api/jobs/${id}/log`) || ''; }
     async function loadForwarderLog() { selectedJob = null; document.getElementById('logPanel').textContent = await api('/api/forwarder/log') || ''; }
     async function openDirectory(path) { const msg = document.getElementById('dirMessage'); msg.className = 'message'; msg.textContent = ''; try { const data = await api(`/api/fs/dirs?path=${encodeURIComponent(path || '')}`); renderDirectory(data); } catch (err) { msg.className = 'message error'; msg.textContent = err.message; } }
-    function renderDirectory(data) { currentDir = data.path || ''; currentDirParent = data.parent || ''; document.getElementById('dirDialogPath').value = currentDir; document.getElementById('dirParentBtn').disabled = !currentDirParent; const list = document.getElementById('dirList'); list.innerHTML = ''; if (!data.entries.length) { const empty = document.createElement('div'); empty.className = 'dir-row muted'; empty.textContent = 'No directories'; list.appendChild(empty); return; } data.entries.forEach(entry => { const row = document.createElement('button'); row.className = 'dir-row'; row.type = 'button'; const name = document.createElement('span'); name.className = 'dir-name'; name.textContent = entry.name; const flag = document.createElement('span'); flag.className = 'dir-writable'; flag.textContent = entry.writable ? 'Writable' : 'Read only'; row.append(name, flag); row.addEventListener('click', () => openDirectory(entry.path)); list.appendChild(row); }); }
+    function renderDirectory(data) { currentDir = data.path || ''; currentDirParent = data.parent || ''; document.getElementById('dirDialogPath').value = currentDir; document.getElementById('dirParentBtn').disabled = !currentDirParent; const list = document.getElementById('dirList'); list.innerHTML = ''; if (!data.entries.length) { const empty = document.createElement('div'); empty.className = 'dir-row muted'; empty.textContent = '没有子目录'; list.appendChild(empty); return; } data.entries.forEach(entry => { const row = document.createElement('button'); row.className = 'dir-row'; row.type = 'button'; const name = document.createElement('span'); name.className = 'dir-name'; name.textContent = entry.name; const flag = document.createElement('span'); flag.className = 'dir-writable'; flag.textContent = entry.writable ? '可写' : '只读'; row.append(name, flag); row.addEventListener('click', () => openDirectory(entry.path)); list.appendChild(row); }); }
     async function openDirectoryDialog() { document.getElementById('dirDialog').classList.remove('hidden'); await openDirectory(document.getElementById('downloadDir').value); document.getElementById('dirDialogPath').focus(); }
     function closeDirectoryDialog() { document.getElementById('dirDialog').classList.add('hidden'); }
     function selectCurrentDirectory() { if (currentDir) { document.getElementById('downloadDir').value = currentDir; } closeDirectoryDialog(); }
-    function renderSummary(jobs) { const counts = jobs.reduce((acc, job) => { acc[job.status] = (acc[job.status] || 0) + 1; return acc; }, {}); const active = jobs.find(job => ['exporting','downloading','renaming'].includes(job.status)); const items = [['Active', active ? `#${active.id}` : '0'], ['Queued', counts.queued || 0], ['Complete', (counts.done || 0) + (counts.skipped || 0)], ['Failed', counts.failed || 0], ['Canceled', counts.canceled || 0]]; document.getElementById('summary').innerHTML = items.map(([label, value]) => `<div class="metric"><strong>${escapeHtml(value)}</strong><span>${label}</span></div>`).join(''); }
-    function renderForwarder(status) { const sourceText = status.source_count ? `${status.source_count} enabled` : (status.source || ''); const items = [['State', `<span class="status ${escapeHtml(status.state || 'unknown')}">${statusLabel(status.state || 'unknown')}</span>`], ['Sources', escapeHtml(sourceText)], ['Last source', escapeHtml(status.last_source || '')], ['Sent', escapeHtml(status.sent_count || 0)], ['Error', escapeHtml(status.last_error || '')]]; document.getElementById('forwarderStatus').innerHTML = items.map(([label, value]) => `<div class="metric"><strong>${value}</strong><span>${label}</span></div>`).join('') + '<button class="secondary" onclick="loadForwarderLog()">Log</button>'; }
-    function renderJobs(jobs) { const body = document.getElementById('jobsBody'); if (!jobs.length) { body.innerHTML = '<tr><td colspan="11" class="muted">No jobs</td></tr>'; return; } body.innerHTML = jobs.map(job => { const pct = Math.max(0, Math.min(100, Number(job.progress || 0))); const active = ['queued','exporting','downloading','renaming'].includes(job.status); const retry = ['failed','canceled'].includes(job.status) ? `<button class="secondary" onclick="retryJob(${job.id})">Retry</button>` : ''; const cancel = active ? `<button class="secondary" onclick="cancelJob(${job.id})">Cancel</button>` : ''; const remove = !['exporting','downloading','renaming'].includes(job.status) ? `<button class="danger" onclick="deleteJob(${job.id})">Delete</button>` : ''; return `<tr><td class="mono">#${job.id}</td><td>${escapeHtml(job.source_label || job.source_chat || '')}</td><td class="mono">${job.message_id}</td><td><span class="status ${job.status}">${statusLabel(job.status)}</span></td><td class="title-cell">${escapeHtml(job.title || job.error || '')}</td><td><div class="bar"><i style="width:${pct}%"></i></div><span class="muted">${pct.toFixed(1)}%</span></td><td>${escapeHtml(job.speed || '')}</td><td class="mono">${job.process_pid || ''}</td><td class="path-cell">${escapeHtml(job.download_dir || '')}</td><td class="title-cell">${escapeHtml(job.final_path || job.source_file || '')}</td><td class="actions"><button class="secondary" onclick="loadLog(${job.id})">Log</button>${cancel}${retry}${remove}</td></tr>`; }).join(''); }
+    function renderSummary(jobs) { const counts = jobs.reduce((acc, job) => { acc[job.status] = (acc[job.status] || 0) + 1; return acc; }, {}); const active = jobs.find(job => ['exporting','downloading','renaming'].includes(job.status)); const items = [['活动', active ? `#${active.id}` : '0'], ['排队', counts.queued || 0], ['完成', (counts.done || 0) + (counts.skipped || 0)], ['失败', counts.failed || 0], ['取消', counts.canceled || 0]]; document.getElementById('summary').innerHTML = items.map(([label, value]) => `<div class="metric"><strong>${escapeHtml(value)}</strong><span>${label}</span></div>`).join(''); }
+    function renderForwarder(status) { const sourceText = status.source_count ? `${status.source_count} 个已启用` : (status.source || ''); const items = [['状态', `<span class="status ${escapeHtml(status.state || 'unknown')}">${statusLabel(status.state || 'unknown')}</span>`], ['来源', escapeHtml(sourceText)], ['最近来源', escapeHtml(status.last_source || '')], ['已转发', escapeHtml(status.sent_count || 0)], ['错误', escapeHtml(status.last_error || '')]]; document.getElementById('forwarderStatus').innerHTML = items.map(([label, value]) => `<div class="metric"><strong>${value}</strong><span>${label}</span></div>`).join('') + '<button class="secondary" onclick="loadForwarderLog()">日志</button>'; }
+    function renderJobs(jobs) { const body = document.getElementById('jobsBody'); if (!jobs.length) { body.innerHTML = '<tr><td colspan="11" class="muted">暂无任务</td></tr>'; return; } body.innerHTML = jobs.map(job => { const pct = Math.max(0, Math.min(100, Number(job.progress || 0))); const active = ['queued','exporting','downloading','renaming'].includes(job.status); const retry = ['failed','canceled'].includes(job.status) ? `<button class="secondary" onclick="retryJob(${job.id})">重试</button>` : ''; const cancel = active ? `<button class="secondary" onclick="cancelJob(${job.id})">取消</button>` : ''; const remove = !['exporting','downloading','renaming'].includes(job.status) ? `<button class="danger" onclick="deleteJob(${job.id})">删除</button>` : ''; return `<tr><td class="mono">#${job.id}</td><td>${escapeHtml(job.source_label || job.source_chat || '')}</td><td class="mono">${job.message_id}</td><td><span class="status ${job.status}">${statusLabel(job.status)}</span></td><td class="title-cell">${escapeHtml(job.title || job.error || '')}</td><td><div class="bar"><i style="width:${pct}%"></i></div><span class="muted">${pct.toFixed(1)}%</span></td><td>${escapeHtml(job.speed || '')}</td><td class="mono">${job.process_pid || ''}</td><td class="path-cell">${escapeHtml(job.download_dir || '')}</td><td class="title-cell">${escapeHtml(job.final_path || job.source_file || '')}</td><td class="actions"><button class="secondary" onclick="loadLog(${job.id})">日志</button>${cancel}${retry}${remove}</td></tr>`; }).join(''); }
     async function refreshJobs() { const data = await api('/api/jobs'); renderSummary(data.jobs); renderJobs(data.jobs); if (selectedJob) { document.getElementById('logPanel').textContent = await api(`/api/jobs/${selectedJob}/log`) || ''; } }
     async function refreshForwarder() { renderForwarder(await api('/api/forwarder/status')); }
     async function refreshAll() { await Promise.all([refreshJobs(), refreshForwarder()]); }
@@ -1270,31 +1280,34 @@ INDEX_HTML = r"""<!doctype html>
 
 
 LOGIN_HTML = r"""<!doctype html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Login - Telegram Download Manager</title>
+  <title>登录 - Telegram 下载管理</title>
   <style>
-    :root { font-family: Arial, sans-serif; color:#18201b; background:#f6f7f4; }
+    :root { font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei","PingFang SC","Noto Sans SC",Arial,sans-serif; color:#182128; background:#eef2f5; --line:#bdc8ce; --muted:#63727d; --accent:#126a5b; --accent-dark:#0e584d; --bad:#b42318; }
     * { box-sizing: border-box; }
-    body { margin:0; min-height:100vh; display:grid; place-items:center; }
-    form { width:min(360px, calc(100vw - 32px)); background:#fff; border:1px solid #d9ded4; border-radius:8px; padding:22px; }
-    h1 { margin:0 0 18px; font-size:20px; }
-    label { display:block; margin:12px 0 6px; font-size:13px; color:#657064; }
-    input { width:100%; height:42px; border:1px solid #d9ded4; border-radius:6px; padding:0 10px; font-size:15px; }
-    button { width:100%; height:42px; margin-top:18px; border:0; border-radius:6px; background:#28735f; color:#fff; font-weight:700; cursor:pointer; }
-    .error { min-height:20px; margin-top:12px; color:#b33b32; font-size:13px; }
+    body { margin:0; min-height:100vh; min-height:100dvh; display:grid; place-items:center; padding:20px; }
+    form { width:min(380px, 100%); background:#fff; border:1px solid #d7e0e5; border-radius:8px; padding:24px; box-shadow:0 18px 60px rgba(16,24,32,.12); }
+    h1 { margin:0 0 20px; font-size:22px; line-height:1.2; letter-spacing:0; }
+    label { display:block; margin:12px 0 6px; font-size:13px; font-weight:700; color:var(--muted); }
+    input { width:100%; height:42px; border:1px solid var(--line); border-radius:6px; padding:0 10px; font-size:15px; outline:none; }
+    input:focus { border-color:var(--accent); box-shadow:0 0 0 3px rgba(18,106,91,.18); }
+    button { width:100%; height:42px; margin-top:18px; border:0; border-radius:6px; background:var(--accent); color:#fff; font-weight:700; cursor:pointer; }
+    button:hover { background:var(--accent-dark); }
+    button:active { transform:translateY(1px); }
+    .error { min-height:20px; margin-top:12px; color:var(--bad); font-size:13px; }
   </style>
 </head>
 <body>
   <form id="loginForm">
-    <h1>Telegram Download Manager</h1>
-    <label for="username">Admin</label>
+    <h1>Telegram 下载管理</h1>
+    <label for="username">管理员</label>
     <input id="username" autocomplete="username" value="admin">
-    <label for="password">Password</label>
+    <label for="password">密码</label>
     <input id="password" type="password" autocomplete="current-password" autofocus>
-    <button type="submit">Login</button>
+    <button type="submit">登录</button>
     <div class="error" id="error"></div>
   </form>
   <script>
@@ -1303,7 +1316,7 @@ LOGIN_HTML = r"""<!doctype html>
       const error = document.getElementById('error');
       error.textContent = '';
       const res = await fetch('/api/auth/login', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ username:document.getElementById('username').value, password:document.getElementById('password').value }) });
-      if (res.ok) { location.href = '/'; } else { error.textContent = await res.text() || 'Login failed'; }
+      if (res.ok) { location.href = '/'; } else { error.textContent = await res.text() || '登录失败'; }
     });
   </script>
 </body>
