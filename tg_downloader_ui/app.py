@@ -68,6 +68,17 @@ class ExportMetadata:
     text: str
 
 
+@dataclasses.dataclass(frozen=True)
+class MediaPlan:
+    media_type: str
+    title: str
+    year: str
+    season: int | None
+    episode: int | None
+    final_filename: str
+    final_path: Path
+
+
 def utcish_now() -> str:
     return dt.datetime.now().isoformat(timespec="seconds")
 
@@ -105,6 +116,208 @@ def sanitize_filename(value: str, fallback: str = "download") -> str:
     cleaned = INVALID_FILENAME_RE.sub("", value)
     cleaned = SPACE_RE.sub(" ", cleaned).strip(" .")
     return cleaned or fallback
+
+
+def extract_labeled_value(text: str, labels: list[str]) -> str:
+    label_pattern = "|".join(re.escape(label) for label in labels)
+    pattern = re.compile(rf"^\s*(?:{label_pattern})\s*[:：]\s*(.*?)\s*$")
+    for raw_line in text.splitlines():
+        match = pattern.match(raw_line.strip())
+        if match:
+            return match.group(1).strip()
+    return ""
+
+
+def extract_year(text: str) -> str:
+    match = re.search(r"(?:19|20)\d{2}", text)
+    return match.group(0) if match else ""
+
+
+def clean_media_title(value: str, fallback: str = "download") -> str:
+    title = sanitize_filename(value, fallback=fallback)
+    title = re.sub(r"\s+", " ", title).strip()
+    noisy_suffixes = (
+        "国语",
+        "英语",
+        "粤语",
+        "中字",
+        "双语",
+        "正片",
+        "高清",
+        "完整版",
+        "无水印",
+        "1080p",
+        "2160p",
+        "4k",
+        "hd",
+        "web-dl",
+        "webrip",
+        "bluray",
+        "h264",
+        "h265",
+        "x264",
+        "x265",
+    )
+    suffix_pattern = "|".join(re.escape(item) for item in noisy_suffixes)
+    while True:
+        cleaned = re.sub(
+            rf"(?:[\s._-]+|\b)(?:{suffix_pattern})$",
+            "",
+            title,
+            flags=re.IGNORECASE,
+        ).strip(" ._-")
+        if cleaned == title:
+            break
+        title = cleaned
+    return title or fallback
+
+
+def parse_small_number(value: str) -> int | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    if text.isdigit():
+        return int(text)
+
+    digits = {
+        "零": 0,
+        "〇": 0,
+        "一": 1,
+        "二": 2,
+        "两": 2,
+        "三": 3,
+        "四": 4,
+        "五": 5,
+        "六": 6,
+        "七": 7,
+        "八": 8,
+        "九": 9,
+    }
+    if text == "十":
+        return 10
+    if "十" in text:
+        left, _, right = text.partition("十")
+        tens = digits.get(left, 1) if left else 1
+        ones = digits.get(right, 0) if right else 0
+        return tens * 10 + ones
+    if len(text) == 1:
+        return digits.get(text)
+    return None
+
+
+def extract_episode_info(metadata: ExportMetadata) -> tuple[int | None, int | None]:
+    number = r"([0-9]{1,3}|[零〇一二两三四五六七八九十]{1,4})"
+    haystacks = [metadata.source_file, metadata.title, metadata.text]
+
+    for value in haystacks:
+        match = re.search(r"(?i)\bS(\d{1,2})[\s._-]*E(\d{1,3})\b", value)
+        if match:
+            return int(match.group(1)), int(match.group(2))
+
+    for value in haystacks:
+        match = re.search(rf"第\s*{number}\s*季.*?第\s*{number}\s*[集话話]", value)
+        if match:
+            season = parse_small_number(match.group(1))
+            episode = parse_small_number(match.group(2))
+            if season and episode:
+                return season, episode
+
+    for value in haystacks:
+        match = re.search(rf"第\s*{number}\s*[集话話]", value)
+        if match:
+            episode = parse_small_number(match.group(1))
+            if episode:
+                return 1, episode
+
+    for value in haystacks:
+        match = re.search(r"(?i)(?:^|[\s._-])EP?(\d{1,3})(?:$|[\s._-])", value)
+        if match:
+            return 1, int(match.group(1))
+
+    return None, None
+
+
+def build_media_plan(metadata: ExportMetadata, download_dir: Path) -> MediaPlan:
+    extension = metadata.extension if metadata.extension.startswith(".") else ""
+    structured_title = extract_labeled_value(metadata.text, ["片名", "剧名", "名称", "标题"])
+    year = extract_year(
+        extract_labeled_value(metadata.text, ["首映", "上映", "年份", "发行"])
+        or metadata.text
+        or metadata.source_file
+    )
+    season, episode = extract_episode_info(metadata)
+
+    if season and episode:
+        title = clean_media_title(structured_title or metadata.title, fallback=f"message_{metadata.message_id}")
+        show_dir = f"{title} ({year})" if year else title
+        final_filename = f"{title} - S{season:02d}E{episode:02d}{extension}"
+        final_path = download_dir / "TV" / show_dir / f"Season {season:02d}" / final_filename
+        return MediaPlan("tv", title, year, season, episode, final_filename, final_path)
+
+    if structured_title:
+        title = clean_media_title(structured_title, fallback=f"message_{metadata.message_id}")
+        stem = f"{title} ({year})" if year else title
+        final_filename = f"{stem}{extension}"
+        final_path = download_dir / "Movies" / stem / final_filename
+        return MediaPlan("movie", title, year, None, None, final_filename, final_path)
+
+    final_filename = build_final_filename(metadata)
+    final_path = download_dir / final_filename
+    return MediaPlan("file", sanitize_filename(metadata.title), year, None, None, final_filename, final_path)
+
+
+def sidecar_stem(final_path: Path) -> Path:
+    return final_path.with_suffix("")
+
+
+def write_sidecar_metadata(
+    plan: MediaPlan,
+    metadata: ExportMetadata,
+    source_label: str = "",
+) -> list[Path]:
+    stem = sidecar_stem(plan.final_path)
+    json_path = stem.with_name(stem.name + ".telegram.json")
+    text_path = stem.with_name(stem.name + ".telegram.txt")
+    json_path.parent.mkdir(parents=True, exist_ok=True)
+
+    payload = {
+        "dialog_id": metadata.dialog_id,
+        "message_id": metadata.message_id,
+        "source_file": metadata.source_file,
+        "source_label": source_label,
+        "telegram_text": metadata.text,
+        "media": {
+            "type": plan.media_type,
+            "title": plan.title,
+            "year": plan.year,
+            "season": plan.season,
+            "episode": plan.episode,
+            "final_filename": plan.final_filename,
+            "final_path": str(plan.final_path),
+        },
+        "written_at": utcish_now(),
+    }
+    json_path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
+
+    lines = [
+        f"source: {source_label}",
+        f"dialog_id: {metadata.dialog_id}",
+        f"message_id: {metadata.message_id}",
+        f"source_file: {metadata.source_file}",
+        f"media_type: {plan.media_type}",
+        f"title: {plan.title}",
+    ]
+    if plan.year:
+        lines.append(f"year: {plan.year}")
+    if plan.season is not None and plan.episode is not None:
+        lines.append(f"season: {plan.season:02d}")
+        lines.append(f"episode: {plan.episode:02d}")
+    lines.extend(["", "--- telegram text ---", metadata.text])
+    text_path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+    return [json_path, text_path]
 
 
 def extract_export_metadata(export_json: str, expected_message_id: int) -> ExportMetadata:
@@ -775,8 +988,9 @@ class DownloadWorker(threading.Thread):
 
         self.check_canceled(job_id)
         metadata = extract_export_metadata(export_path.read_text(encoding="utf-8"), message_id)
-        final_filename = build_final_filename(metadata)
-        final_path = download_dir / final_filename
+        media_plan = build_media_plan(metadata, download_dir)
+        final_filename = media_plan.final_filename
+        final_path = media_plan.final_path
         source_name = sanitize_filename(metadata.source_file, fallback=f"message_{message_id}")
         default_path = download_dir / f"{metadata.dialog_id}_{metadata.message_id}_{source_name}"
 
@@ -790,6 +1004,7 @@ class DownloadWorker(threading.Thread):
 
         if final_path.exists() and final_path.stat().st_size > 0:
             self.store.append_log(job_id, f"Already exists: {final_path}\n")
+            write_sidecar_metadata(media_plan, metadata, source_label)
             self.cleanup_partial_files(job_id, metadata, default_path)
             self.store.finish_job(
                 job_id,
@@ -802,11 +1017,17 @@ class DownloadWorker(threading.Thread):
         if default_path.exists():
             rename_path = final_path
             if rename_path.exists():
-                rename_path = download_dir / self.unique_final_filename(
-                    final_filename, message_id, download_dir
-                )
+                rename_path = self.unique_final_path(rename_path, message_id)
+                final_filename = rename_path.name
             self.store.append_log(job_id, f"Rename existing file: {default_path} -> {rename_path}\n")
+            rename_path.parent.mkdir(parents=True, exist_ok=True)
             default_path.rename(rename_path)
+            media_plan = dataclasses.replace(
+                media_plan,
+                final_filename=rename_path.name,
+                final_path=rename_path,
+            )
+            write_sidecar_metadata(media_plan, metadata, source_label)
             self.store.finish_job(
                 job_id,
                 "done",
@@ -846,11 +1067,18 @@ class DownloadWorker(threading.Thread):
 
         if downloaded_path != final_path:
             if final_path.exists():
-                final_filename = self.unique_final_filename(final_filename, message_id, download_dir)
-                final_path = download_dir / final_filename
+                final_path = self.unique_final_path(final_path, message_id)
+                final_filename = final_path.name
             self.store.append_log(job_id, f"Rename: {downloaded_path} -> {final_path}\n")
+            final_path.parent.mkdir(parents=True, exist_ok=True)
             downloaded_path.rename(final_path)
 
+        media_plan = dataclasses.replace(
+            media_plan,
+            final_filename=final_path.name,
+            final_path=final_path,
+        )
+        write_sidecar_metadata(media_plan, metadata, source_label)
         self.store.finish_job(
             job_id,
             "done",
@@ -983,6 +1211,15 @@ class DownloadWorker(threading.Thread):
             if not (download_dir / name).exists():
                 return name
         raise RuntimeError(f"too many filename collisions for {desired_name}")
+
+    def unique_final_path(self, desired_path: Path, message_id: int) -> Path:
+        if not desired_path.exists():
+            return desired_path
+        return desired_path.parent / self.unique_final_filename(
+            desired_path.name,
+            message_id,
+            desired_path.parent,
+        )
 
     def find_downloaded_path(
         self,

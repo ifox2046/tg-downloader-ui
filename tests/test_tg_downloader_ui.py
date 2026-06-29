@@ -11,13 +11,16 @@ from types import SimpleNamespace
 import tg_downloader_ui.app as app
 from tg_downloader_ui.app import (
     DownloadWorker,
+    ExportMetadata,
     JobStore,
+    build_media_plan,
     build_tdl_base_args,
     build_final_filename,
     extract_export_metadata,
     extract_title,
     parse_tdl_progress,
     sanitize_filename,
+    write_sidecar_metadata,
 )
 
 
@@ -90,6 +93,111 @@ class CommandConstructionTests(unittest.TestCase):
         self.assertIn("--storage", args)
         self.assertIn("type=bolt,path=/root/.tdl/data", args)
         self.assertLess(args.index("--storage"), args.index("--proxy"))
+
+
+class MediaPlanTests(unittest.TestCase):
+    def test_movie_plan_uses_title_and_year_directory(self):
+        root = Path("/downloads")
+        metadata = ExportMetadata(
+            dialog_id=7487350635,
+            message_id=23402,
+            source_file="[youxiu]正片.mp4",
+            title="绵羊侦探团",
+            extension=".mp4",
+            text=(
+                "片名：绵羊侦探团\n"
+                "首映：2026-05-08(美国)\n"
+                "类型：喜剧 / 动作 / 悬疑\n"
+                "简介：牧羊人乔治最爱给羊群读侦探小说。"
+            ),
+        )
+
+        plan = build_media_plan(metadata, root)
+
+        self.assertEqual(plan.media_type, "movie")
+        self.assertEqual(plan.title, "绵羊侦探团")
+        self.assertEqual(plan.year, "2026")
+        self.assertEqual(plan.final_filename, "绵羊侦探团 (2026).mp4")
+        self.assertEqual(
+            plan.final_path,
+            root / "Movies" / "绵羊侦探团 (2026)" / "绵羊侦探团 (2026).mp4",
+        )
+
+    def test_tv_plan_uses_season_episode_directory(self):
+        root = Path("/downloads")
+        metadata = ExportMetadata(
+            dialog_id=7487350635,
+            message_id=24001,
+            source_file="庆余年.S02E03.mkv",
+            title="庆余年",
+            extension=".mkv",
+            text="片名：庆余年\n首映：2024-05-16(中国大陆)\n类型：剧情 / 古装",
+        )
+
+        plan = build_media_plan(metadata, root)
+
+        self.assertEqual(plan.media_type, "tv")
+        self.assertEqual(plan.title, "庆余年")
+        self.assertEqual(plan.year, "2024")
+        self.assertEqual(plan.season, 2)
+        self.assertEqual(plan.episode, 3)
+        self.assertEqual(plan.final_filename, "庆余年 - S02E03.mkv")
+        self.assertEqual(
+            plan.final_path,
+            root / "TV" / "庆余年 (2024)" / "Season 02" / "庆余年 - S02E03.mkv",
+        )
+
+    def test_plain_file_without_structured_text_keeps_legacy_flat_path(self):
+        root = Path("/downloads")
+        metadata = ExportMetadata(
+            dialog_id=7487350635,
+            message_id=23311,
+            source_file="Existing Movie.mp4",
+            title="Existing Movie",
+            extension=".mp4",
+            text="",
+        )
+
+        plan = build_media_plan(metadata, root)
+
+        self.assertEqual(plan.media_type, "file")
+        self.assertEqual(plan.final_filename, "Existing Movie.mp4")
+        self.assertEqual(plan.final_path, root / "Existing Movie.mp4")
+
+    def test_sidecars_preserve_original_telegram_context(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            metadata = ExportMetadata(
+                dialog_id=7487350635,
+                message_id=23402,
+                source_file="[youxiu]正片.mp4",
+                title="绵羊侦探团",
+                extension=".mp4",
+                text="片名：绵羊侦探团\n首映：2026-05-08(美国)",
+            )
+            plan = build_media_plan(metadata, root)
+            plan.final_path.parent.mkdir(parents=True)
+            plan.final_path.write_bytes(b"movie")
+
+            sidecars = write_sidecar_metadata(plan, metadata, source_label="优影臻享")
+
+            self.assertEqual(
+                {path.name for path in sidecars},
+                {"绵羊侦探团 (2026).telegram.json", "绵羊侦探团 (2026).telegram.txt"},
+            )
+            payload = json.loads(
+                (plan.final_path.parent / "绵羊侦探团 (2026).telegram.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            self.assertEqual(payload["message_id"], 23402)
+            self.assertEqual(payload["source_file"], "[youxiu]正片.mp4")
+            self.assertEqual(payload["media"]["year"], "2026")
+            text = (plan.final_path.parent / "绵羊侦探团 (2026).telegram.txt").read_text(
+                encoding="utf-8"
+            )
+            self.assertIn("source: 优影臻享", text)
+            self.assertIn("片名：绵羊侦探团", text)
 
 
 class ConfigAuthTests(unittest.TestCase):
@@ -595,6 +703,66 @@ class WorkerSkipTests(unittest.TestCase):
                 self.assertEqual(Path(result["final_path"]), existing)
                 self.assertFalse((app.DOWNLOAD_DIR / "Existing Movie - 23311.mp4").exists())
                 self.assertFalse(stale_tmp.exists())
+        finally:
+            app.DOWNLOAD_DIR = original_download_dir
+
+    def test_downloaded_structured_movie_moves_to_library_layout_with_sidecars(self):
+        class CompleteDownloadWorker(DownloadWorker):
+            def __init__(self, store, stop_event, payload, download_dir):
+                super().__init__(store, stop_event)
+                self.payload = payload
+                self.download_dir = download_dir
+
+            def run_command(self, job_id, cmd, status):
+                if status == "exporting":
+                    job = self.store.get_job(job_id)
+                    Path(job["export_path"]).write_text(
+                        json.dumps(self.payload, ensure_ascii=False), encoding="utf-8"
+                    )
+                    return 0
+                if status == "downloading":
+                    default_path = self.download_dir / "7487350635_23402_[youxiu]正片.mp4"
+                    default_path.write_bytes(b"movie")
+                    return 0
+                return 0
+
+        original_download_dir = app.DOWNLOAD_DIR
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                app.DOWNLOAD_DIR = root / "downloads"
+
+                store = JobStore(root / "state")
+                store.init()
+                queued = store.create_job(23402)
+                job = store.claim_next()
+                payload = {
+                    "id": 7487350635,
+                    "messages": [
+                        {
+                            "id": queued["message_id"],
+                            "file": "[youxiu]正片.mp4",
+                            "text": "片名：绵羊侦探团\n首映：2026-05-08(美国)",
+                        }
+                    ],
+                }
+
+                worker = CompleteDownloadWorker(store, threading.Event(), payload, app.DOWNLOAD_DIR)
+                worker.process_job(job)
+
+                final_path = (
+                    app.DOWNLOAD_DIR
+                    / "Movies"
+                    / "绵羊侦探团 (2026)"
+                    / "绵羊侦探团 (2026).mp4"
+                )
+                result = store.get_job(job["id"])
+                self.assertEqual(result["status"], "done")
+                self.assertEqual(result["final_filename"], "绵羊侦探团 (2026).mp4")
+                self.assertEqual(Path(result["final_path"]), final_path)
+                self.assertEqual(final_path.read_bytes(), b"movie")
+                self.assertTrue((final_path.parent / "绵羊侦探团 (2026).telegram.json").exists())
+                self.assertTrue((final_path.parent / "绵羊侦探团 (2026).telegram.txt").exists())
         finally:
             app.DOWNLOAD_DIR = original_download_dir
 
