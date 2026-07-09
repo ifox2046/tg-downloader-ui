@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tg-downloader-ui"
+version = "0.1.0"
+description = "Lightweight web UI and automation layer for Telegram downloads with tdl."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+authors = [{ name = "tg-downloader-ui contributors" }]
+keywords = ["telegram", "tdl", "downloader", "openwrt"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Web Environment",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+]
+dependencies = [
+  "qrcode>=7.4",
+  "telethon>=1.35",
+]
+
+[project.optional-dependencies]
+forwarder = ["telethon>=1.35"]
+
+[project.scripts]
+tg-downloader-ui = "tg_downloader_ui.app:main"
+tg-downloader-forwarder = "tg_downloader_ui.forwarder:main"
+
+[tool.setuptools]
+packages = ["tg_downloader_ui"]
