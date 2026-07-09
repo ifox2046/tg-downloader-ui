@@ -10,6 +10,18 @@ htmlcov/
 *.log
 
 .tmp*/
+.tmp*
 downloads/
+data/
+dist/
 telegram_session.txt
 tg_session.txt
+
+# Local tooling / editor state — not for the public repo
+.codegraph/
+.codex/
+.claude/
+.agents/
+
+# Windows accidental redirect artifact
+NUL
