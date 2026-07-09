@@ -1,0 +1,1632 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>TG 下载中控 - UI 原型</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #ece8df;
+      --bg-strong: #ded8cc;
+      --panel: #fffdf8;
+      --panel-soft: #f7f3ea;
+      --panel-tint: #f1ede4;
+      --line: #d9d2c5;
+      --line-strong: #c7beae;
+      --ink: #202927;
+      --ink-soft: #35423f;
+      --muted: #68736f;
+      --muted-2: #87918d;
+      --accent: #2b6f66;
+      --accent-strong: #1f554f;
+      --accent-soft: #dcebe7;
+      --good: #2d7048;
+      --good-soft: #dfeee3;
+      --warn: #8b651d;
+      --warn-soft: #f3e6c5;
+      --bad: #a64235;
+      --bad-soft: #f0ddd8;
+      --log: #111918;
+      --log-line: #263836;
+      --shadow: 0 18px 50px rgba(49, 43, 34, .12);
+      --shadow-soft: 0 8px 24px rgba(49, 43, 34, .08);
+      --radius: 10px;
+      --radius-sm: 7px;
+      font-family: system-ui, "Segoe UI", "PingFang SC", "Microsoft YaHei", "Noto Sans SC", Arial, sans-serif;
+      font-variant-numeric: tabular-nums;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      min-height: 100dvh;
+      background:
+        radial-gradient(circle at 20% 0%, rgba(43, 111, 102, .08), transparent 34rem),
+        linear-gradient(180deg, var(--bg), #f3efe7 48rem);
+      color: var(--ink);
+      font-size: 14px;
+      line-height: 1.55;
+    }
+
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      opacity: .18;
+      background-image:
+        linear-gradient(rgba(32, 41, 39, .06) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(32, 41, 39, .04) 1px, transparent 1px);
+      background-size: 36px 36px;
+      mask-image: linear-gradient(180deg, rgba(0,0,0,.9), transparent 80%);
+    }
+
+    h1, h2, h3, p {
+      margin-top: 0;
+    }
+
+    h1, h2, h3 {
+      line-height: 1.18;
+      letter-spacing: 0;
+      text-wrap: balance;
+    }
+
+    h1 {
+      margin-bottom: 8px;
+      font-size: clamp(24px, 2.4vw, 34px);
+      font-weight: 760;
+    }
+
+    h2 {
+      margin-bottom: 12px;
+      font-size: 17px;
+      font-weight: 720;
+    }
+
+    h3 {
+      margin-bottom: 8px;
+      font-size: 14px;
+      font-weight: 720;
+    }
+
+    p {
+      color: var(--muted);
+      text-wrap: pretty;
+    }
+
+    button,
+    input,
+    textarea,
+    select {
+      font: inherit;
+    }
+
+    button {
+      min-height: 40px;
+      border: 0;
+      border-radius: var(--radius-sm);
+      padding: 0 14px;
+      background: var(--accent);
+      color: #fff;
+      font-weight: 720;
+      cursor: pointer;
+      white-space: nowrap;
+      box-shadow: 0 1px 0 rgba(255,255,255,.35) inset, var(--shadow-soft);
+      transition: background .18s ease, transform .18s ease, box-shadow .18s ease, border-color .18s ease;
+    }
+
+    button:hover {
+      background: var(--accent-strong);
+      box-shadow: 0 1px 0 rgba(255,255,255,.32) inset, 0 12px 28px rgba(31, 85, 79, .18);
+    }
+
+    button:active {
+      transform: translateY(1px) scale(.99);
+    }
+
+    button:focus-visible,
+    input:focus-visible,
+    textarea:focus-visible,
+    select:focus-visible,
+    a:focus-visible {
+      outline: 3px solid rgba(43, 111, 102, .25);
+      outline-offset: 2px;
+    }
+
+    button.secondary {
+      background: #fbfaf6;
+      color: var(--ink);
+      border: 1px solid var(--line-strong);
+      box-shadow: none;
+    }
+
+    button.secondary:hover {
+      background: var(--panel-soft);
+      border-color: var(--accent);
+      box-shadow: 0 8px 20px rgba(49, 43, 34, .08);
+    }
+
+    button.danger {
+      background: var(--bad);
+    }
+
+    button.danger:hover {
+      background: #87382f;
+    }
+
+    button.ghost {
+      background: transparent;
+      color: var(--accent-strong);
+      border: 1px solid transparent;
+      box-shadow: none;
+    }
+
+    button.ghost:hover {
+      background: var(--accent-soft);
+      border-color: rgba(43, 111, 102, .22);
+      box-shadow: none;
+    }
+
+    button:disabled {
+      opacity: .54;
+      cursor: not-allowed;
+      transform: none;
+      box-shadow: none;
+    }
+
+    label {
+      display: block;
+      margin-bottom: 6px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 720;
+    }
+
+    input,
+    textarea,
+    select {
+      width: 100%;
+      border: 1px solid var(--line-strong);
+      border-radius: var(--radius-sm);
+      background: #fffefa;
+      color: var(--ink);
+      outline: none;
+      box-shadow: 0 1px 0 rgba(255,255,255,.8) inset;
+      transition: border-color .18s ease, box-shadow .18s ease, background .18s ease;
+    }
+
+    input,
+    select {
+      height: 42px;
+      padding: 0 11px;
+    }
+
+    textarea {
+      min-height: 88px;
+      padding: 10px 11px;
+      resize: vertical;
+      line-height: 1.55;
+    }
+
+    input:focus,
+    textarea:focus,
+    select:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(43, 111, 102, .14);
+      background: #fff;
+    }
+
+    .mono {
+      font-family: Consolas, "SFMono-Regular", "Liberation Mono", monospace;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .muted {
+      color: var(--muted);
+    }
+
+    .prototype-bar {
+      position: sticky;
+      top: 0;
+      z-index: 30;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      padding: 10px 16px;
+      border-bottom: 1px solid rgba(32, 41, 39, .1);
+      background: rgba(247, 243, 234, .88);
+      backdrop-filter: blur(14px);
+    }
+
+    .prototype-title {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-width: 0;
+      color: var(--ink-soft);
+      font-weight: 760;
+    }
+
+    .mark {
+      width: 32px;
+      height: 32px;
+      display: inline-grid;
+      place-items: center;
+      border-radius: 8px;
+      background: var(--ink);
+      color: #f6efe2;
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: 0;
+    }
+
+    .prototype-tabs {
+      display: flex;
+      gap: 8px;
+      overflow-x: auto;
+    }
+
+    .prototype-tabs button {
+      min-height: 34px;
+      padding: 0 12px;
+      font-size: 13px;
+    }
+
+    .prototype-tabs button.active {
+      background: var(--ink);
+      color: #fff;
+    }
+
+    .prototype-screen {
+      display: none;
+    }
+
+    .prototype-screen.active {
+      display: block;
+    }
+
+    .app-shell {
+      min-height: calc(100vh - 55px);
+      display: grid;
+      grid-template-columns: 248px minmax(0, 1fr);
+      gap: 0;
+    }
+
+    .sidebar {
+      position: sticky;
+      top: 55px;
+      height: calc(100vh - 55px);
+      display: flex;
+      flex-direction: column;
+      padding: 18px 14px;
+      background:
+        linear-gradient(180deg, #172320, #22332f 56%, #1b2a27);
+      color: #f6f0e6;
+      border-right: 1px solid rgba(17, 25, 24, .22);
+    }
+
+    .brand {
+      padding: 4px 8px 18px;
+      border-bottom: 1px solid rgba(255,255,255,.12);
+    }
+
+    .brand-main {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 17px;
+      font-weight: 820;
+      line-height: 1.2;
+    }
+
+    .brand small {
+      display: block;
+      margin-top: 7px;
+      color: #afbeb8;
+      font-size: 12px;
+      font-weight: 660;
+    }
+
+    .nav-list {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      margin-top: 16px;
+    }
+
+    .nav-item {
+      width: 100%;
+      justify-content: flex-start;
+      text-align: left;
+      border: 1px solid transparent;
+      background: transparent;
+      color: #bdc9c4;
+      box-shadow: none;
+    }
+
+    .nav-item:hover {
+      background: rgba(255,255,255,.07);
+      color: #fff;
+      box-shadow: none;
+    }
+
+    .nav-item.active {
+      background: rgba(239, 231, 214, .13);
+      color: #fff;
+      border-color: rgba(255,255,255,.12);
+      box-shadow: inset 3px 0 0 #d8c78c;
+    }
+
+    .service-card {
+      margin-top: auto;
+      padding: 12px;
+      border: 1px solid rgba(255,255,255,.12);
+      border-radius: var(--radius);
+      background: rgba(255,255,255,.07);
+      color: #dce6e1;
+    }
+
+    .service-card strong {
+      display: block;
+      margin-bottom: 4px;
+      color: #fff;
+    }
+
+    .service-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      padding-top: 8px;
+      color: #b8c6c0;
+      font-size: 12px;
+    }
+
+    .sidebar-footer {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      margin-top: 12px;
+    }
+
+    .sidebar-footer button {
+      width: 100%;
+      background: rgba(255,255,255,.08);
+      color: #f6f0e6;
+      border-color: rgba(255,255,255,.16);
+    }
+
+    .content {
+      min-width: 0;
+      padding: 0 24px 34px;
+    }
+
+    .content-header {
+      min-height: 88px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      max-width: 1420px;
+      margin: 0 auto;
+      border-bottom: 1px solid rgba(32, 41, 39, .1);
+    }
+
+    .eyebrow {
+      margin-bottom: 5px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 760;
+    }
+
+    .top {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      min-height: 28px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 0 10px;
+      background: rgba(255,255,255,.55);
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 680;
+    }
+
+    .page {
+      display: none;
+      max-width: 1420px;
+      margin: 0 auto;
+      padding-top: 18px;
+    }
+
+    .page.active {
+      display: block;
+    }
+
+    .panel {
+      border: 1px solid rgba(32, 41, 39, .1);
+      border-radius: var(--radius);
+      background: rgba(255, 253, 248, .92);
+      box-shadow: var(--shadow-soft);
+    }
+
+    .panel.pad {
+      padding: 16px;
+    }
+
+    .workbench {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 340px;
+      gap: 14px;
+      align-items: stretch;
+    }
+
+    .submit-grid {
+      display: grid;
+      grid-template-columns: minmax(180px, .32fr) minmax(300px, 1fr) auto;
+      gap: 12px;
+      align-items: end;
+    }
+
+    .message {
+      min-height: 22px;
+      margin: 10px 0 0;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .message.error {
+      color: var(--bad);
+      font-weight: 650;
+    }
+
+    .message.good {
+      color: var(--good);
+      font-weight: 650;
+    }
+
+    .now-card {
+      position: relative;
+      display: grid;
+      align-content: space-between;
+      gap: 16px;
+      overflow: hidden;
+      background:
+        linear-gradient(145deg, rgba(43, 111, 102, .12), rgba(255,255,255,.92) 52%),
+        var(--panel);
+    }
+
+    .now-card::after {
+      content: "";
+      position: absolute;
+      right: 18px;
+      bottom: 18px;
+      width: 72px;
+      height: 72px;
+      border: 1px solid rgba(43, 111, 102, .2);
+      border-radius: 18px;
+      transform: rotate(8deg);
+    }
+
+    .now-card > * {
+      position: relative;
+      z-index: 1;
+    }
+
+    .now-card strong {
+      display: block;
+      font-size: 24px;
+      line-height: 1.1;
+    }
+
+    .metric-grid {
+      display: grid;
+      grid-template-columns: repeat(6, minmax(120px, 1fr));
+      gap: 10px;
+      margin-top: 14px;
+    }
+
+    .metric {
+      min-height: 92px;
+      display: grid;
+      align-content: space-between;
+      padding: 12px;
+      border: 1px solid rgba(32, 41, 39, .1);
+      border-radius: var(--radius-sm);
+      background: rgba(255, 253, 248, .86);
+    }
+
+    .metric strong {
+      display: block;
+      color: var(--ink);
+      font-size: 24px;
+      line-height: 1;
+      font-family: Consolas, "SFMono-Regular", "Liberation Mono", monospace;
+      overflow-wrap: anywhere;
+    }
+
+    .metric span {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 680;
+    }
+
+    .metric.forwarder {
+      grid-column: span 2;
+      background: var(--accent-soft);
+    }
+
+    .section-head {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 14px;
+      margin: 18px 0 10px;
+    }
+
+    .section-head p {
+      margin-bottom: 0;
+    }
+
+    .table-wrap {
+      overflow-x: auto;
+      border: 1px solid rgba(32, 41, 39, .1);
+      border-radius: var(--radius);
+      background: var(--panel);
+      box-shadow: var(--shadow-soft);
+    }
+
+    table {
+      width: 100%;
+      min-width: 1120px;
+      border-collapse: separate;
+      border-spacing: 0;
+    }
+
+    th,
+    td {
+      padding: 11px 10px;
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      vertical-align: middle;
+    }
+
+    th {
+      position: sticky;
+      top: 0;
+      z-index: 1;
+      background: var(--panel-soft);
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 780;
+    }
+
+    td {
+      font-size: 13px;
+    }
+
+    tbody tr:hover {
+      background: #fbf8f1;
+    }
+
+    tbody tr:last-child td {
+      border-bottom: 0;
+    }
+
+    .title-cell {
+      max-width: 290px;
+      color: var(--ink-soft);
+      font-weight: 680;
+      overflow-wrap: anywhere;
+    }
+
+    .path-cell {
+      max-width: 340px;
+      color: var(--muted);
+      overflow-wrap: anywhere;
+    }
+
+    .status {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 74px;
+      min-height: 26px;
+      border-radius: 999px;
+      padding: 0 8px;
+      font-size: 12px;
+      font-weight: 760;
+      background: var(--panel-tint);
+      color: var(--muted);
+    }
+
+    .status.done,
+    .status.skipped,
+    .status.running {
+      background: var(--good-soft);
+      color: var(--good);
+    }
+
+    .status.failed,
+    .status.canceled,
+    .status.stale {
+      background: var(--bad-soft);
+      color: var(--bad);
+    }
+
+    .status.downloading,
+    .status.exporting,
+    .status.renaming,
+    .status.queued {
+      background: var(--warn-soft);
+      color: var(--warn);
+    }
+
+    .bar {
+      width: 128px;
+      height: 8px;
+      overflow: hidden;
+      border-radius: 999px;
+      background: #ddd6ca;
+    }
+
+    .bar > i {
+      display: block;
+      height: 100%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, var(--accent), #6a927f);
+    }
+
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 7px;
+    }
+
+    .actions button {
+      min-height: 32px;
+      padding: 0 10px;
+      font-size: 12px;
+    }
+
+    .output-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 300px;
+      gap: 14px;
+      margin-top: 14px;
+    }
+
+    .log {
+      min-height: 240px;
+      max-height: 420px;
+      overflow: auto;
+      margin: 0;
+      padding: 14px;
+      border: 1px solid var(--log-line);
+      border-radius: var(--radius);
+      background:
+        linear-gradient(180deg, rgba(255,255,255,.03), transparent),
+        var(--log);
+      color: #dce7df;
+      white-space: pre-wrap;
+      font: 12px/1.55 Consolas, "SFMono-Regular", "Liberation Mono", monospace;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.04);
+    }
+
+    .empty-state {
+      min-height: 240px;
+      display: grid;
+      align-content: center;
+      gap: 8px;
+      padding: 18px;
+      border: 1px dashed var(--line-strong);
+      border-radius: var(--radius);
+      background: rgba(255, 253, 248, .72);
+    }
+
+    .empty-state strong {
+      font-size: 18px;
+    }
+
+    .settings-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto auto;
+      gap: 10px;
+      align-items: end;
+    }
+
+    .source-row {
+      display: grid;
+      grid-template-columns: minmax(140px, .8fr) minmax(150px, 1fr) minmax(160px, 1fr) auto auto auto;
+      gap: 10px;
+      align-items: end;
+      padding: 12px 0;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .source-row:last-child {
+      border-bottom: 0;
+    }
+
+    .check-row {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      min-height: 42px;
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .check-row input {
+      width: auto;
+      height: auto;
+    }
+
+    .auth-layout {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .auth-card {
+      display: grid;
+      gap: 14px;
+      align-content: start;
+      padding: 16px;
+    }
+
+    .auth-note {
+      margin: -2px 0 0;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .auth-block {
+      padding-top: 14px;
+      border-top: 1px solid var(--line);
+    }
+
+    .form-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(180px, 1fr));
+      gap: 10px;
+      align-items: end;
+    }
+
+    .button-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 9px;
+      align-items: center;
+      margin-top: 10px;
+    }
+
+    .qr-preview {
+      display: grid;
+      grid-template-columns: 152px minmax(0, 1fr);
+      gap: 12px;
+      align-items: start;
+      margin-top: 10px;
+    }
+
+    .qr-tile {
+      width: 152px;
+      height: 152px;
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      gap: 4px;
+      padding: 10px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-sm);
+      background: #fff;
+    }
+
+    .qr-tile i {
+      display: block;
+      border-radius: 2px;
+      background: var(--ink);
+    }
+
+    .qr-tile i:nth-child(3n),
+    .qr-tile i:nth-child(5n) {
+      background: transparent;
+    }
+
+    .terminal-mini {
+      min-height: 152px;
+      margin: 0;
+      padding: 12px;
+      overflow: auto;
+      border-radius: var(--radius-sm);
+      background: var(--log);
+      color: #dce7df;
+      font: 11px/1.35 Consolas, "SFMono-Regular", "Liberation Mono", monospace;
+      white-space: pre;
+    }
+
+    .password-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(220px, 1fr)) auto;
+      gap: 10px;
+      align-items: end;
+    }
+
+    .modal {
+      margin-top: 14px;
+      border: 1px solid rgba(32, 41, 39, .12);
+      border-radius: var(--radius);
+      overflow: hidden;
+      background: var(--panel);
+      box-shadow: var(--shadow-soft);
+    }
+
+    .dialog-header,
+    .dialog-footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 13px 14px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .dialog-footer {
+      justify-content: flex-end;
+      border-top: 1px solid var(--line);
+      border-bottom: 0;
+    }
+
+    .dialog-body {
+      padding: 14px;
+    }
+
+    .path-toolbar {
+      display: grid;
+      grid-template-columns: auto auto minmax(220px, 1fr) auto;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+
+    .dir-list {
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-sm);
+      background: var(--panel-soft);
+    }
+
+    .dir-row {
+      width: 100%;
+      min-height: 40px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      border: 0;
+      border-bottom: 1px solid var(--line);
+      border-radius: 0;
+      background: #fffefa;
+      color: var(--ink);
+      box-shadow: none;
+      text-align: left;
+    }
+
+    .dir-row:hover {
+      background: var(--panel-soft);
+      box-shadow: none;
+    }
+
+    .dir-row:last-child {
+      border-bottom: 0;
+    }
+
+    .dir-name {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .dir-writable {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .auth-screen {
+      min-height: calc(100vh - 55px);
+      display: grid;
+      place-items: center;
+      padding: 34px 18px;
+    }
+
+    .auth-shell {
+      width: min(1040px, 100%);
+      display: grid;
+      grid-template-columns: minmax(280px, .9fr) minmax(320px, 1fr);
+      gap: 18px;
+      align-items: stretch;
+    }
+
+    .auth-intro {
+      padding: clamp(22px, 4vw, 42px);
+      border-radius: calc(var(--radius) + 2px);
+      background:
+        linear-gradient(145deg, #172320, #2c403b);
+      color: #f7efe1;
+      box-shadow: var(--shadow);
+    }
+
+    .auth-intro .mark {
+      background: #efe1bb;
+      color: #172320;
+    }
+
+    .auth-intro h1 {
+      margin-top: 26px;
+      font-size: clamp(30px, 4vw, 48px);
+    }
+
+    .auth-intro p {
+      max-width: 28rem;
+      color: #c5d0ca;
+    }
+
+    .auth-panel {
+      padding: clamp(20px, 3vw, 30px);
+      border-radius: calc(var(--radius) + 2px);
+      background: rgba(255, 253, 248, .94);
+      border: 1px solid rgba(32, 41, 39, .1);
+      box-shadow: var(--shadow);
+    }
+
+    .auth-panel .field + .field {
+      margin-top: 13px;
+    }
+
+    .auth-panel button {
+      width: 100%;
+      margin-top: 18px;
+    }
+
+    .setup-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .setup-grid .full {
+      grid-column: 1 / -1;
+    }
+
+    @media (max-width: 1180px) {
+      .metric-grid {
+        grid-template-columns: repeat(3, minmax(120px, 1fr));
+      }
+
+      .workbench,
+      .output-grid,
+      .auth-layout {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 900px) {
+      .prototype-bar {
+        align-items: stretch;
+        flex-direction: column;
+      }
+
+      .app-shell {
+        grid-template-columns: 1fr;
+      }
+
+      .sidebar {
+        position: sticky;
+        top: 88px;
+        z-index: 20;
+        height: auto;
+        min-height: 0;
+        flex-direction: row;
+        align-items: center;
+        gap: 10px;
+        overflow-x: auto;
+        padding: 10px;
+      }
+
+      .brand {
+        flex: 0 0 auto;
+        min-width: max-content;
+        padding: 0 8px 0 0;
+        border-bottom: 0;
+      }
+
+      .brand small,
+      .service-card,
+      .sidebar-footer {
+        display: none;
+      }
+
+      .nav-list {
+        flex-direction: row;
+        margin-top: 0;
+        overflow-x: auto;
+      }
+
+      .nav-item {
+        width: auto;
+        min-height: 38px;
+      }
+
+      .content {
+        padding: 0 14px 24px;
+      }
+
+      .content-header {
+        min-height: 108px;
+        align-items: flex-start;
+        flex-direction: column;
+        justify-content: center;
+        padding: 14px 0;
+      }
+
+      .submit-grid,
+      .settings-grid,
+      .source-row,
+      .form-grid,
+      .password-grid,
+      .path-toolbar,
+      .qr-preview,
+      .auth-shell,
+      .setup-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .setup-grid .full {
+        grid-column: auto;
+      }
+    }
+
+    @media (max-width: 560px) {
+      body {
+        font-size: 15px;
+      }
+
+      input,
+      select,
+      button {
+        min-height: 44px;
+      }
+
+      .prototype-tabs {
+        width: 100%;
+      }
+
+      .prototype-tabs button {
+        flex: 1;
+      }
+
+      .metric-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .metric.forwarder {
+        grid-column: 1 / -1;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="prototype-bar">
+    <div class="prototype-title"><span class="mark">TG</span><span>媒体下载中控原型</span></div>
+    <div class="prototype-tabs" aria-label="原型视图">
+      <button class="secondary active" type="button" data-prototype="dashboard">主控制台</button>
+      <button class="secondary" type="button" data-prototype="login">登录页</button>
+      <button class="secondary" type="button" data-prototype="setup">初始化页</button>
+    </div>
+  </div>
+
+  <section class="prototype-screen active" id="prototype-dashboard">
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-main"><span class="mark">TG</span><span>TG 下载中控</span></div>
+          <small>媒体归档服务</small>
+        </div>
+        <nav class="nav-list" aria-label="主菜单">
+          <button class="nav-item active" data-page="downloads" type="button">下载任务</button>
+          <button class="nav-item" data-page="paths" type="button">路径设置</button>
+          <button class="nav-item" data-page="sources" type="button">资源来源</button>
+          <button class="nav-item" data-page="telegram" type="button">Telegram 授权</button>
+          <button class="nav-item" data-page="password" type="button">密码管理</button>
+        </nav>
+        <div class="service-card">
+          <strong>服务状态</strong>
+          <div class="service-row"><span>部署</span><span>Docker / iStoreOS</span></div>
+          <div class="service-row"><span>tdl</span><span>0.20.3</span></div>
+          <div class="service-row"><span>存储</span><span>可写</span></div>
+        </div>
+        <div class="sidebar-footer">
+          <button class="secondary" id="logoutBtn" type="button">退出登录</button>
+        </div>
+      </aside>
+
+      <main class="content">
+        <header class="content-header">
+          <div>
+            <div class="eyebrow">媒体归档工作台</div>
+            <h1 id="pageTitle">下载任务</h1>
+          </div>
+          <div class="top">
+            <span class="pill">admin</span>
+            <span class="pill mono">2026-07-08 13:42:18</span>
+          </div>
+        </header>
+
+        <section class="page active" id="page-downloads">
+          <div class="workbench">
+            <section class="panel pad">
+              <h2>提交下载</h2>
+              <div class="submit-grid">
+                <div>
+                  <label for="sourceSelect">资源来源</label>
+                  <select id="sourceSelect">
+                    <option>优影臻享</option>
+                    <option>家庭片库 Bot</option>
+                    <option>纪录片频道</option>
+                  </select>
+                </div>
+                <div>
+                  <label for="messageIds">消息 ID</label>
+                  <textarea id="messageIds" aria-label="消息 ID" placeholder="23402&#10;24001"></textarea>
+                </div>
+                <button id="submitBtn" type="button">提交下载</button>
+              </div>
+              <div class="message error" id="submitMessage">示例错误：消息 ID 不能为空。生产界面中这里会替代弹窗提示。</div>
+            </section>
+
+            <aside class="panel pad now-card">
+              <div>
+                <span class="pill">当前活动</span>
+                <strong class="mono">#128</strong>
+                <p>绵羊侦探团 (2026) 正在下载，已写入 Movies 归档目录。</p>
+              </div>
+              <div>
+                <div class="bar" aria-label="当前进度"><i style="width:72.8%"></i></div>
+                <p class="message mono">72.8% · 3.16 MB/s · ETA 4m41s</p>
+              </div>
+            </aside>
+          </div>
+
+          <section class="metric-grid" id="summary">
+            <div class="metric"><strong>#128</strong><span>活动任务</span></div>
+            <div class="metric"><strong>2</strong><span>排队</span></div>
+            <div class="metric"><strong>47</strong><span>已完成</span></div>
+            <div class="metric"><strong>1</strong><span>失败</span></div>
+            <div class="metric"><strong>3</strong><span>已暂停</span></div>
+            <div class="metric forwarder"><strong><span class="status running">运行中</span></strong><span>转发监听 · 3 个来源</span></div>
+          </section>
+
+          <div class="section-head">
+            <div>
+              <h2>下载队列</h2>
+              <p>保留表格密度，突出媒体标题、进度和可恢复操作。</p>
+            </div>
+            <button class="secondary" type="button">刷新</button>
+          </div>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>任务</th>
+                  <th>来源</th>
+                  <th>消息</th>
+                  <th>状态</th>
+                  <th>片名/错误</th>
+                  <th>进度</th>
+                  <th>速度</th>
+                  <th>PID</th>
+                  <th>目录</th>
+                  <th>文件</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody id="jobsBody">
+                <tr>
+                  <td class="mono">#128</td>
+                  <td>优影臻享</td>
+                  <td class="mono">23402</td>
+                  <td><span class="status downloading">下载中</span></td>
+                  <td class="title-cell">绵羊侦探团 (2026)</td>
+                  <td><div class="bar"><i style="width:72.8%"></i></div><span class="muted mono">72.8%</span></td>
+                  <td class="mono">3.16 MB/s</td>
+                  <td class="mono">3921</td>
+                  <td class="path-cell">/mnt/telegram-downloads/Movies/绵羊侦探团 (2026)</td>
+                  <td class="title-cell">绵羊侦探团 (2026).mp4</td>
+                  <td class="actions"><button class="secondary" type="button">日志</button><button class="secondary" type="button">暂停</button></td>
+                </tr>
+                <tr>
+                  <td class="mono">#127</td>
+                  <td>纪录片频道</td>
+                  <td class="mono">24018</td>
+                  <td><span class="status exporting">导出中</span></td>
+                  <td class="title-cell">海岸线观察 第 4 集</td>
+                  <td><div class="bar"><i style="width:18%"></i></div><span class="muted mono">18.0%</span></td>
+                  <td class="mono"></td>
+                  <td class="mono">3914</td>
+                  <td class="path-cell">/mnt/telegram-downloads/TV/海岸线观察 (2025)/Season 01</td>
+                  <td class="title-cell">海岸线观察 - S01E04.mkv</td>
+                  <td class="actions"><button class="secondary" type="button">日志</button><button class="secondary" type="button">暂停</button></td>
+                </tr>
+                <tr>
+                  <td class="mono">#126</td>
+                  <td>家庭片库 Bot</td>
+                  <td class="mono">24001</td>
+                  <td><span class="status canceled">已暂停</span></td>
+                  <td class="title-cell">庆余年 - S02E03</td>
+                  <td><div class="bar"><i style="width:41.2%"></i></div><span class="muted mono">41.2%</span></td>
+                  <td class="mono"></td>
+                  <td class="mono"></td>
+                  <td class="path-cell">/mnt/telegram-downloads/TV/庆余年 (2024)/Season 02</td>
+                  <td class="title-cell">庆余年 - S02E03.mkv</td>
+                  <td class="actions"><button class="secondary" type="button">日志</button><button class="secondary" type="button">继续</button><button class="danger" type="button">删除</button></td>
+                </tr>
+                <tr>
+                  <td class="mono">#125</td>
+                  <td>优影臻享</td>
+                  <td class="mono">23311</td>
+                  <td><span class="status done">完成</span></td>
+                  <td class="title-cell">小黄人与大怪兽 抢先版</td>
+                  <td><div class="bar"><i style="width:100%"></i></div><span class="muted mono">100.0%</span></td>
+                  <td class="mono"></td>
+                  <td class="mono"></td>
+                  <td class="path-cell">/mnt/telegram-downloads/Movies/小黄人与大怪兽 (2026)</td>
+                  <td class="title-cell">小黄人与大怪兽 (2026).mp4</td>
+                  <td class="actions"><button class="secondary" type="button">日志</button><button class="danger" type="button">删除</button></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="output-grid">
+            <section>
+              <div class="section-head">
+                <div>
+                  <h2>任务输出</h2>
+                  <p>用于查看选中任务或 forwarder 的运行日志。</p>
+                </div>
+              </div>
+              <pre class="log" id="logPanel">[13:38:02] tdl chat export -c 优影臻享 -i 23402 -o /etc/tg-downloader-ui/exports/128.json
+[13:38:04] metadata: 绵羊侦探团 (2026), movie, mp4
+[13:38:06] tdl download --continue -d /mnt/telegram-downloads -f /etc/tg-downloader-ui/exports/128.json --skip-same
+[13:41:17] 优影臻享:23402 -> /mnt/telegram-downloads/Movies/绵羊侦探团 (2026)
+[13:41:17] 72.8% [2.23 GB in 12m2s; ETA: 4m41s; 3.16 MB/s]</pre>
+            </section>
+
+            <aside>
+              <div class="section-head">
+                <div>
+                  <h2>空状态</h2>
+                  <p>没有任务时用于替代单行文字。</p>
+                </div>
+              </div>
+              <div class="empty-state">
+                <strong>还没有下载任务</strong>
+                <p>选择来源并输入消息 ID，任务会进入队列。完成后文件会按媒体信息写入归档目录。</p>
+                <button class="secondary" type="button">查看来源设置</button>
+              </div>
+            </aside>
+          </div>
+        </section>
+
+        <section class="page" id="page-paths">
+          <section class="panel pad">
+            <h2>下载目录</h2>
+            <p>设置默认写入位置。目录需要是绝对路径，服务账号必须有写入权限。</p>
+            <div class="settings-grid">
+              <div>
+                <label for="downloadDir">当前路径</label>
+                <input id="downloadDir" value="/mnt/telegram-downloads">
+              </div>
+              <button class="secondary" id="browseDirBtn" type="button">选择目录</button>
+              <button id="saveConfigBtn" type="button">保存</button>
+            </div>
+            <div class="message good" id="configMessage">已保存。示例目录可写。</div>
+          </section>
+
+          <section class="modal" id="dirDialog" aria-label="目录选择原型">
+            <div class="dialog-header">
+              <h2>选择目录</h2>
+              <button class="ghost" id="closeDirBtn" type="button">关闭</button>
+            </div>
+            <div class="dialog-body">
+              <div class="path-toolbar">
+                <button class="secondary" id="dirParentBtn" type="button">上级</button>
+                <button class="secondary" id="dirRootBtn" type="button">根目录</button>
+                <input id="dirDialogPath" value="/mnt/telegram-downloads">
+                <button id="goDirBtn" type="button">打开</button>
+              </div>
+              <div class="dir-list" id="dirList">
+                <button class="dir-row" type="button"><span class="dir-name">Movies</span><span class="dir-writable">可写</span></button>
+                <button class="dir-row" type="button"><span class="dir-name">TV</span><span class="dir-writable">可写</span></button>
+                <button class="dir-row" type="button"><span class="dir-name">Documentaries</span><span class="dir-writable">可写</span></button>
+              </div>
+              <div class="message" id="dirMessage">目录浏览器保持轻量，生产环境继续使用现有 API。</div>
+            </div>
+            <div class="dialog-footer">
+              <button class="secondary" type="button">取消</button>
+              <button id="selectDirBtn" type="button">使用当前目录</button>
+            </div>
+          </section>
+        </section>
+
+        <section class="page" id="page-sources">
+          <section class="panel pad">
+            <h2>资源来源</h2>
+            <p>来源仍然以可编辑行呈现，适合快速批量维护。</p>
+            <div id="sourceList">
+              <div class="source-row">
+                <div><label>标签</label><input value="优影臻享"></div>
+                <div><label>tdl 聊天</label><input value="7487350635"></div>
+                <div><label>转发来源</label><input value="@movie_feed_bot"></div>
+                <label class="check-row"><input type="checkbox" checked> 启用</label>
+                <label class="check-row"><input type="radio" name="defaultSource" checked> 默认</label>
+                <button class="secondary" type="button">移除</button>
+              </div>
+              <div class="source-row">
+                <div><label>标签</label><input value="纪录片频道"></div>
+                <div><label>tdl 聊天</label><input value="@docu_archive"></div>
+                <div><label>转发来源</label><input value="@docu_feed"></div>
+                <label class="check-row"><input type="checkbox" checked> 启用</label>
+                <label class="check-row"><input type="radio" name="defaultSource"> 默认</label>
+                <button class="secondary" type="button">移除</button>
+              </div>
+            </div>
+            <div class="button-row">
+              <button class="secondary" id="addSourceBtn" type="button">添加来源</button>
+              <button id="saveSourcesBtn" type="button">保存</button>
+            </div>
+            <div class="message" id="sourcesMessage">保存后下载页来源下拉会同步刷新。</div>
+          </section>
+        </section>
+
+        <section class="page" id="page-telegram">
+          <div class="auth-layout">
+            <section class="panel auth-card">
+              <div>
+                <h2>Telethon 用户授权</h2>
+                <p class="auth-note">用于转发监听和消息处理；这里生成的 Session 不会自动登录 tdl。</p>
+              </div>
+              <div class="auth-block">
+                <h3>Telegram API</h3>
+                <div class="form-grid">
+                  <div><label for="telegramApiId">API ID</label><input id="telegramApiId" value="12345"></div>
+                  <div><label for="telegramApiHash">API hash</label><input id="telegramApiHash" placeholder="留空保持不变"></div>
+                  <div><label for="telegramSessionFile">Session 文件</label><input id="telegramSessionFile" value="/etc/tg-downloader-ui/session.txt"></div>
+                  <div><label for="telegramChannelId">转发目标频道 ID</label><input id="telegramChannelId" value="-100..."></div>
+                  <div><label for="telegramProxy">Telegram 代理</label><input id="telegramProxy" placeholder="socks5://127.0.0.1:1080"></div>
+                </div>
+                <div class="button-row"><button id="saveTelegramBtn" type="button">保存配置</button><span class="pill">Session 已存在</span></div>
+                <div class="message" id="telegramConfigMessage"></div>
+              </div>
+              <div class="auth-block">
+                <h3>验证码登录</h3>
+                <div class="form-grid">
+                  <div><label for="telegramPhone">手机号</label><input id="telegramPhone" placeholder="+8613..."></div>
+                  <div><label for="telegramCode">验证码</label><input id="telegramCode" inputmode="numeric"></div>
+                  <div><label for="telegramPassword">两步验证密码</label><input id="telegramPassword" type="password"></div>
+                </div>
+                <div class="button-row"><button class="secondary" id="sendTelegramCodeBtn" type="button">发送验证码</button><button id="confirmTelegramCodeBtn" type="button">确认登录</button></div>
+                <div class="message" id="telegramCodeMessage">示例状态：等待验证码。</div>
+              </div>
+              <div class="auth-block">
+                <h3>二维码登录</h3>
+                <div class="button-row"><button class="secondary" id="startTelegramQrBtn" type="button">生成二维码</button><button id="checkTelegramQrBtn" type="button">检查扫码状态</button></div>
+                <div class="qr-preview" id="telegramQr">
+                  <div class="qr-tile" aria-label="二维码示意">
+                    <i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+                    <i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+                    <i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+                    <i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+                    <i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+                    <i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+                    <i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+                  </div>
+                  <p>扫码后点击检查状态。二维码区域固定尺寸，避免刷新时挤压页面。</p>
+                </div>
+                <div class="message" id="telegramQrMessage"></div>
+              </div>
+            </section>
+
+            <section class="panel auth-card">
+              <div>
+                <h2>tdl 下载授权</h2>
+                <p class="auth-note">用于实际 Telegram 文件下载；tdl 需要单独登录，不会读取上方 Telethon Session。</p>
+              </div>
+              <div class="auth-block">
+                <h3>验证码登录</h3>
+                <div class="form-grid">
+                  <div><label for="tdlPhone">手机号</label><input id="tdlPhone" placeholder="+8613..."></div>
+                  <div><label for="tdlCode">验证码</label><input id="tdlCode" inputmode="numeric"></div>
+                  <div><label for="tdlPassword">两步验证密码</label><input id="tdlPassword" type="password"></div>
+                </div>
+                <div class="button-row"><button class="secondary" id="startTdlCodeLoginBtn" type="button">启动验证码登录</button><button class="secondary" id="sendTdlPhoneBtn" type="button">发送手机号</button><button class="secondary" id="sendTdlCodeBtn" type="button">发送验证码</button><button id="sendTdlPasswordBtn" type="button">发送两步验证密码</button></div>
+              </div>
+              <div class="auth-block">
+                <h3>二维码登录</h3>
+                <div class="button-row"><button class="secondary" id="startTdlQrLoginBtn" type="button">生成二维码</button><button id="refreshTdlQrLoginBtn" type="button">刷新状态</button></div>
+                <div class="qr-preview">
+                  <pre class="terminal-mini" id="tdlQr">Scan QR with Telegram
+
+██████  ██  ██████
+██  ██      ██  ██
+██████  ██  ██████
+  ██    ██    ██
+██████      ██████</pre>
+                  <p>tdl 终端二维码只显示最新一段输出，重复登录不会堆叠多个二维码。</p>
+                </div>
+                <div class="message error" id="tdlLoginMessage">示例错误：tdl 登录进程已退出，请重新生成二维码。</div>
+                <pre class="log" id="tdlLoginOutput">tdl 输出区域。二维码模式下这里保持清爽，非二维码模式显示交互提示。</pre>
+              </div>
+            </section>
+          </div>
+        </section>
+
+        <section class="page" id="page-password">
+          <section class="panel pad">
+            <h2>密码管理</h2>
+            <p>修改后当前会话失效，需要重新登录。</p>
+            <div class="password-grid">
+              <div><label for="currentPassword">当前密码</label><input id="currentPassword" type="password"></div>
+              <div><label for="newPassword">新密码</label><input id="newPassword" type="password"></div>
+              <button id="changePasswordBtn" type="button">更新密码</button>
+            </div>
+            <div class="message" id="passwordMessage"></div>
+          </section>
+        </section>
+      </main>
+    </div>
+  </section>
+
+  <section class="prototype-screen" id="prototype-login">
+    <div class="auth-screen">
+      <div class="auth-shell">
+        <aside class="auth-intro">
+          <span class="mark">TG</span>
+          <h1>Telegram 下载管理</h1>
+          <p>登录后管理下载队列、来源、归档目录和 Telegram 授权。适用于 Docker、iStoreOS、OpenWRT 和普通服务器部署。</p>
+          <div class="service-row"><span>当前服务</span><span class="mono">9910</span></div>
+          <div class="service-row"><span>运行状态</span><span>等待登录</span></div>
+        </aside>
+        <form class="auth-panel" id="loginForm">
+          <h2>登录下载中控</h2>
+          <p>使用初始化时创建的管理员账号。</p>
+          <div class="field">
+            <label for="loginUsername">管理员</label>
+            <input id="loginUsername" autocomplete="username" value="admin">
+          </div>
+          <div class="field">
+            <label for="loginPassword">密码</label>
+            <input id="loginPassword" type="password" autocomplete="current-password" autofocus>
+          </div>
+          <button type="submit">登录</button>
+          <div class="message error" id="error">示例错误：用户名或密码无效。</div>
+        </form>
+      </div>
+    </div>
+  </section>
+
+  <section class="prototype-screen" id="prototype-setup">
+    <div class="auth-screen">
+      <div class="auth-shell">
+        <aside class="auth-intro">
+          <span class="mark">TG</span>
+          <h1>初始化下载中控</h1>
+          <p>首次启动时创建管理员账号并设置下载目录。Telegram 转发器字段可以稍后在授权页补充。</p>
+          <div class="service-row"><span>配置文件</span><span>尚未创建</span></div>
+          <div class="service-row"><span>默认密码</span><span>不可用</span></div>
+        </aside>
+        <main class="auth-panel">
+          <h2>完成初始设置</h2>
+          <div class="setup-grid">
+            <div>
+              <label for="setupUsername">管理员账号</label>
+              <input id="setupUsername" autocomplete="username" value="admin">
+            </div>
+            <div>
+              <label for="setupPassword">管理员密码</label>
+              <input id="setupPassword" type="password" autocomplete="new-password">
+            </div>
+            <div class="full">
+              <label for="setupDownloadDir">下载目录</label>
+              <input id="setupDownloadDir" placeholder="/mnt/telegram-downloads">
+            </div>
+            <div>
+              <label for="setupApiId">Telegram API ID（仅转发器需要）</label>
+              <input id="setupApiId" inputmode="numeric">
+            </div>
+            <div>
+              <label for="setupApiHash">Telegram API hash（仅转发器需要）</label>
+              <input id="setupApiHash">
+            </div>
+            <div>
+              <label for="setupSessionFile">Telegram Session 文件（仅转发器需要）</label>
+              <input id="setupSessionFile" placeholder="/etc/tg-downloader-ui/session.txt">
+            </div>
+            <div>
+              <label for="setupChannelId">转发目标频道 ID（仅转发器需要）</label>
+              <input id="setupChannelId" placeholder="-100...">
+            </div>
+          </div>
+          <button id="setupSaveBtn" type="button">完成初始化</button>
+          <div class="message" id="setupMessage">Telegram 授权和 tdl 登录可以初始化后再配置。</div>
+        </main>
+      </div>
+    </div>
+  </section>
+
+  <script>
+    const prototypeButtons = Array.from(document.querySelectorAll('[data-prototype]'));
+    const prototypeScreens = Array.from(document.querySelectorAll('.prototype-screen'));
+    prototypeButtons.forEach(button => {
+      button.addEventListener('click', () => {
+        const target = button.dataset.prototype;
+        prototypeButtons.forEach(item => item.classList.toggle('active', item === button));
+        prototypeScreens.forEach(screen => screen.classList.toggle('active', screen.id === `prototype-${target}`));
+      });
+    });
+
+    const titles = {
+      downloads: '下载任务',
+      paths: '路径设置',
+      sources: '资源来源',
+      telegram: 'Telegram 授权',
+      password: '密码管理',
+    };
+
+    document.querySelectorAll('.nav-item').forEach(button => {
+      button.addEventListener('click', () => {
+        const page = button.dataset.page;
+        document.querySelectorAll('.nav-item').forEach(item => item.classList.toggle('active', item === button));
+        document.querySelectorAll('.page').forEach(section => section.classList.toggle('active', section.id === `page-${page}`));
+        document.getElementById('pageTitle').textContent = titles[page] || '下载任务';
+      });
+    });
+
+    document.getElementById('submitBtn').addEventListener('click', () => {
+      const message = document.getElementById('submitMessage');
+      const text = document.getElementById('messageIds').value.trim();
+      if (!text) {
+        message.className = 'message error';
+        message.textContent = '消息 ID 不能为空。';
+        return;
+      }
+      message.className = 'message good';
+      message.textContent = '示例状态：任务已加入队列。';
+    });
+
+    document.getElementById('loginForm').addEventListener('submit', event => {
+      event.preventDefault();
+      document.getElementById('error').textContent = '原型不会连接真实登录接口。';
+    });
+  </script>
+</body>
+</html>

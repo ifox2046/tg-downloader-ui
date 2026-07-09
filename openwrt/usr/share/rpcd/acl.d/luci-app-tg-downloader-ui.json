@@ -1,9 +1,14 @@
 {
 	"luci-app-tg-downloader-ui": {
-		"description": "Grant access to the Telegram Download Manager LuCI link",
+		"description": "Grant access to the Telegram Download Manager LuCI controls",
 		"read": {
 			"ubus": {
-				"luci": [ "getFeatures" ]
+				"rc": [ "list" ]
+			}
+		},
+		"write": {
+			"ubus": {
+				"rc": [ "init" ]
 			}
 		}
 	}

@@ -1,2 +1,2 @@
-/.gitattributes text eol=lf
+* text=auto eol=lf
 openwrt/** text eol=lf

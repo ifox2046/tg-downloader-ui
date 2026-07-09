@@ -14,19 +14,56 @@ class ForwarderFormattingTests(unittest.TestCase):
             text="片名：Demo Movie",
             media=SimpleNamespace(
                 document=SimpleNamespace(
+                    mime_type="video/mp4",
                     size=1536,
                     attributes=[SimpleNamespace(file_name="Demo.Movie.mp4")],
                 )
             ),
         )
 
-        text = forwarder.format_forward_message(message, source_label="Youyou0 Bot")
-        self.assertIn("Source: Youyou0 Bot", text)
+        text = forwarder.format_forward_message(message, source_label="Beta Bot")
+        self.assertIn("Source: Beta Bot", text)
 
         self.assertIn("片名：Demo Movie", text)
         self.assertIn("文件: Demo.Movie.mp4", text)
         self.assertIn("大小: 1.5 KB", text)
         self.assertIn("消息ID: 23311", text)
+
+    def test_format_forward_message_skips_text_only_message(self):
+        message = SimpleNamespace(id=23312, text="纯文本通知", media=None)
+
+        self.assertEqual(forwarder.format_forward_message(message, source_label="Beta Bot"), "")
+
+    def test_format_forward_message_skips_non_video_document(self):
+        message = SimpleNamespace(
+            id=23313,
+            text="文档说明",
+            media=SimpleNamespace(
+                document=SimpleNamespace(
+                    mime_type="application/pdf",
+                    size=1536,
+                    attributes=[SimpleNamespace(file_name="manual.pdf")],
+                )
+            ),
+        )
+
+        self.assertEqual(forwarder.format_forward_message(message, source_label="Beta Bot"), "")
+
+    def test_format_forward_message_skips_video_without_text(self):
+        message = SimpleNamespace(
+            id=23314,
+            text="",
+            caption="",
+            media=SimpleNamespace(
+                document=SimpleNamespace(
+                    mime_type="video/mp4",
+                    size=1536,
+                    attributes=[SimpleNamespace(file_name="Demo.Movie.mp4")],
+                )
+            ),
+        )
+
+        self.assertEqual(forwarder.format_forward_message(message, source_label="Beta Bot"), "")
 
     def test_load_forward_sources_reads_enabled_config_sources(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -36,17 +73,17 @@ class ForwarderFormattingTests(unittest.TestCase):
                     {
                         "sources": [
                             {
-                                "id": "youxiu_bot",
-                                "label": "Youxiu Bot",
-                                "chat": "Youxiu_bot",
-                                "forward_source": "@Youxiu_bot",
+                                "id": "alpha_bot",
+                                "label": "Alpha Bot",
+                                "chat": "alpha_bot",
+                                "forward_source": "@alpha_bot",
                                 "enabled": True,
                             },
                             {
-                                "id": "youyou0_bot",
-                                "label": "Youyou0 Bot",
-                                "chat": "youyou0_bot",
-                                "forward_source": "@youyou0_bot",
+                                "id": "beta_bot",
+                                "label": "Beta Bot",
+                                "chat": "beta_bot",
+                                "forward_source": "@beta_bot",
                                 "enabled": True,
                             },
                         ]
@@ -59,23 +96,77 @@ class ForwarderFormattingTests(unittest.TestCase):
 
             self.assertEqual(
                 [(source["id"], source["forward_source"]) for source in sources],
-                [("youxiu_bot", "@Youxiu_bot"), ("youyou0_bot", "@youyou0_bot")],
+                [("alpha_bot", "@alpha_bot"), ("beta_bot", "@beta_bot")],
             )
 
     def test_format_forward_message_ignores_empty_message_even_with_source(self):
         message = SimpleNamespace(id=23312, text="", media=None)
 
         self.assertEqual(
-            forwarder.format_forward_message(message, source_label="Youyou0 Bot"),
+            forwarder.format_forward_message(message, source_label="Beta Bot"),
             "",
         )
 
     def test_parse_proxy_url_for_telethon(self):
         self.assertEqual(
-            forwarder.parse_proxy_url("socks5://127.0.0.1:7891"),
-            ("socks5", "127.0.0.1", 7891),
+            forwarder.parse_proxy_url("socks5://127.0.0.1:1080"),
+            ("socks5", "127.0.0.1", 1080),
         )
         self.assertIsNone(forwarder.parse_proxy_url(""))
+
+    def test_validate_runtime_config_requires_telegram_credentials_and_channel(self):
+        with self.assertRaisesRegex(RuntimeError, "TGDL_API_ID is required"):
+            forwarder.validate_runtime_config(api_id="", api_hash="hash", channel_id="-1001")
+        with self.assertRaisesRegex(RuntimeError, "TGDL_API_HASH is required"):
+            forwarder.validate_runtime_config(api_id="12345", api_hash="", channel_id="-1001")
+        with self.assertRaisesRegex(RuntimeError, "TGDL_FORWARD_CHANNEL_ID is required"):
+            forwarder.validate_runtime_config(api_id="12345", api_hash="hash", channel_id="")
+
+    def test_validate_runtime_config_normalizes_channel_internal_id(self):
+        self.assertEqual(
+            forwarder.validate_runtime_config(
+                api_id="12345",
+                api_hash="hash",
+                channel_id="1234567890",
+            ),
+            (12345, "hash", -1001234567890),
+        )
+        self.assertEqual(
+            forwarder.validate_runtime_config(
+                api_id="12345",
+                api_hash="hash",
+                channel_id="-1001234567890",
+            ),
+            (12345, "hash", -1001234567890),
+        )
+
+    def test_resolve_runtime_config_falls_back_to_web_config(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_file = root / "session.txt"
+            config_path = root / "config.json"
+            config_path.write_text(
+                json.dumps(
+                    {
+                        "telegram": {
+                            "api_id": "12345",
+                            "api_hash": "hash-value",
+                            "session_file": str(session_file),
+                            "forward_channel_id": "-1001234567890",
+                            "proxy": "socks5://127.0.0.1:1080",
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            runtime = forwarder.resolve_runtime_config(config_path=config_path)
+
+            self.assertEqual(runtime["api_id"], 12345)
+            self.assertEqual(runtime["api_hash"], "hash-value")
+            self.assertEqual(runtime["session_file"], session_file)
+            self.assertEqual(runtime["channel_id"], -1001234567890)
+            self.assertEqual(runtime["proxy"], "socks5://127.0.0.1:1080")
 
     def test_read_status_marks_old_heartbeat_stale(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -85,8 +176,8 @@ class ForwarderFormattingTests(unittest.TestCase):
                     {
                         "state": "running",
                         "updated_at_epoch": 1000,
-                        "source": "@Youxiu_bot",
-                        "channel_id": -1004496489706,
+                        "source": "@alpha_bot",
+                        "channel_id": -1001234567890,
                     }
                 ),
                 encoding="utf-8",
@@ -95,8 +186,8 @@ class ForwarderFormattingTests(unittest.TestCase):
             status = forwarder.read_status(path, now_epoch=1200, stale_seconds=90)
 
             self.assertEqual(status["state"], "stale")
-            self.assertEqual(status["source"], "@Youxiu_bot")
-            self.assertEqual(status["channel_id"], -1004496489706)
+            self.assertEqual(status["source"], "@alpha_bot")
+            self.assertEqual(status["channel_id"], -1001234567890)
 
 
 if __name__ == "__main__":

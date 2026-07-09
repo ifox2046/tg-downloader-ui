@@ -1,0 +1,22 @@
+services:
+  web:
+    build:
+      context: .
+      args:
+        TDL_VERSION: "0.20.3"
+    ports:
+      - "9910:9910"
+    environment:
+      TGDL_STATE_DIR: /config
+      TGDL_DOWNLOAD_DIR: /downloads
+      TGDL_TDL_STORAGE: type=bolt,path=/tdl/data
+      TGDL_SESSION_FILE: /tdl/session.txt
+      TGDL_PROXY: ""
+      TGDL_TDL_PROXY: ""
+      TGDL_TELEGRAM_PROXY: ""
+      TGDL_FORWARDER_RESTART_CMD: /usr/local/bin/tg-downloader-forwarder-restart
+    volumes:
+      - ./data/config:/config
+      - ./data/tdl:/tdl
+      - ./downloads:/downloads
+    restart: unless-stopped

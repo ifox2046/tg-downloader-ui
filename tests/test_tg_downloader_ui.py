@@ -1,6 +1,9 @@
 import contextlib
 import http.client
 import json
+import os
+import signal
+import sys
 import tempfile
 import threading
 import urllib.parse
@@ -45,7 +48,7 @@ class MetadataParsingTests(unittest.TestCase):
             "messages": [
                 {
                     "id": 23311,
-                    "file": "[youxiu]正片.mp4",
+                    "file": "[source]正片.mp4",
                     "text": "片名：小黄人与大怪兽 抢先版\n地区：美国",
                 }
             ],
@@ -55,7 +58,7 @@ class MetadataParsingTests(unittest.TestCase):
 
         self.assertEqual(metadata.dialog_id, 7487350635)
         self.assertEqual(metadata.message_id, 23311)
-        self.assertEqual(metadata.source_file, "[youxiu]正片.mp4")
+        self.assertEqual(metadata.source_file, "[source]正片.mp4")
         self.assertEqual(metadata.title, "小黄人与大怪兽 抢先版")
         self.assertEqual(metadata.extension, ".mp4")
         self.assertEqual(
@@ -87,12 +90,51 @@ class ProgressParsingTests(unittest.TestCase):
 
 
 class CommandConstructionTests(unittest.TestCase):
-    def test_tdl_base_args_pin_root_storage(self):
-        args = build_tdl_base_args()
+    def test_tdl_base_args_uses_tdl_specific_proxy_before_global_proxy(self):
+        args = app.build_tdl_base_args(
+            tdl_bin="/usr/local/bin/tdl",
+            storage="type=bolt,path=/data/tdl",
+            global_proxy="socks5://127.0.0.1:1080",
+            tdl_proxy="http://127.0.0.1:8080",
+        )
 
+        self.assertEqual(args[0], "/usr/local/bin/tdl")
         self.assertIn("--storage", args)
-        self.assertIn("type=bolt,path=/root/.tdl/data", args)
+        self.assertIn("type=bolt,path=/data/tdl", args)
         self.assertLess(args.index("--storage"), args.index("--proxy"))
+        self.assertEqual(args[args.index("--proxy") + 1], "http://127.0.0.1:8080")
+
+    def test_tdl_base_args_omits_proxy_when_none_is_configured(self):
+        args = app.build_tdl_base_args(
+            tdl_bin="/usr/local/bin/tdl",
+            storage="type=bolt,path=/data/tdl",
+            global_proxy="",
+            tdl_proxy="",
+        )
+
+        self.assertNotIn("--proxy", args)
+
+    def test_shutdown_process_for_pause_sends_sigint_before_kill(self):
+        class FakeProcess:
+            def __init__(self):
+                self.signals = []
+                self.killed = False
+
+            def send_signal(self, value):
+                self.signals.append(value)
+
+            def wait(self, timeout=None):
+                return 130
+
+            def kill(self):
+                self.killed = True
+
+        proc = FakeProcess()
+
+        app.stop_download_process(proc)
+
+        self.assertEqual(proc.signals, [signal.SIGINT])
+        self.assertFalse(proc.killed)
 
 
 class MediaPlanTests(unittest.TestCase):
@@ -101,7 +143,7 @@ class MediaPlanTests(unittest.TestCase):
         metadata = ExportMetadata(
             dialog_id=7487350635,
             message_id=23402,
-            source_file="[youxiu]正片.mp4",
+            source_file="[source]正片.mp4",
             title="绵羊侦探团",
             extension=".mp4",
             text=(
@@ -170,7 +212,7 @@ class MediaPlanTests(unittest.TestCase):
             metadata = ExportMetadata(
                 dialog_id=7487350635,
                 message_id=23402,
-                source_file="[youxiu]正片.mp4",
+                source_file="[source]正片.mp4",
                 title="绵羊侦探团",
                 extension=".mp4",
                 text="片名：绵羊侦探团\n首映：2026-05-08(美国)",
@@ -191,7 +233,7 @@ class MediaPlanTests(unittest.TestCase):
                 )
             )
             self.assertEqual(payload["message_id"], 23402)
-            self.assertEqual(payload["source_file"], "[youxiu]正片.mp4")
+            self.assertEqual(payload["source_file"], "[source]正片.mp4")
             self.assertEqual(payload["media"]["year"], "2026")
             text = (plan.final_path.parent / "绵羊侦探团 (2026).telegram.txt").read_text(
                 encoding="utf-8"
@@ -201,6 +243,95 @@ class MediaPlanTests(unittest.TestCase):
 
 
 class ConfigAuthTests(unittest.TestCase):
+    def test_missing_auth_requires_initial_setup_without_default_password(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            config = app.ConfigStore(
+                root / "state",
+                default_download_dir=root / "downloads",
+                default_user="admin",
+                default_password="",
+            )
+
+            config.init()
+
+            self.assertTrue(config.requires_setup())
+            self.assertFalse(config.verify_password("admin", "test-password"))
+
+    def test_initialize_sets_admin_and_download_dir(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            config = app.ConfigStore(
+                root / "state",
+                default_download_dir=root / "fallback",
+                default_user="admin",
+                default_password="",
+            )
+            config.init()
+            downloads = root / "downloads"
+
+            config.initialize(
+                username="owner",
+                password="strong-password",
+                download_dir=downloads,
+                telegram={
+                    "api_id": "12345",
+                    "api_hash": "hash-value",
+                    "session_file": "/config/session.txt",
+                    "forward_channel_id": "-1001234567890",
+                },
+            )
+
+            self.assertFalse(config.requires_setup())
+            self.assertEqual(config.get_download_dir(), downloads)
+            self.assertTrue(config.verify_password("owner", "strong-password"))
+            self.assertEqual(config.get_telegram_config()["api_id"], "12345")
+
+    def test_initialize_uses_default_download_dir_when_input_is_blank(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            downloads = root / "downloads"
+            config = app.ConfigStore(
+                root / "state",
+                default_download_dir=downloads,
+                default_user="admin",
+                default_password="",
+            )
+            config.init()
+
+            config.initialize(username="owner", password="strong-password", download_dir="")
+
+            self.assertEqual(config.get_download_dir(), downloads)
+            self.assertTrue(downloads.exists())
+
+    def test_telegram_config_can_be_updated_after_setup(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            config = app.ConfigStore(
+                root / "state",
+                default_download_dir=root / "downloads",
+                default_user="admin",
+                default_password="test-password",
+            )
+            config.init()
+
+            config.set_telegram_config(
+                {
+                    "api_id": "12345",
+                    "api_hash": "hash-value",
+                    "session_file": "/config/session.txt",
+                    "forward_channel_id": "-1001234567890",
+                    "proxy": "socks5://127.0.0.1:1080",
+                }
+            )
+
+            telegram = config.get_telegram_config()
+            self.assertEqual(telegram["api_id"], "12345")
+            self.assertEqual(telegram["api_hash"], "hash-value")
+            self.assertEqual(telegram["session_file"], "/config/session.txt")
+            self.assertEqual(telegram["forward_channel_id"], "-1001234567890")
+            self.assertEqual(telegram["proxy"], "socks5://127.0.0.1:1080")
+
     def test_missing_sources_are_migrated_to_default_sources(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -208,16 +339,16 @@ class ConfigAuthTests(unittest.TestCase):
                 root / "state",
                 default_download_dir=root / "downloads",
                 default_user="admin",
-                default_password="admin123",
+                default_password="test-password",
             )
 
             config.init()
 
             sources = config.list_sources()
-            self.assertEqual([source["id"] for source in sources], ["youxiu_bot", "youyou0_bot"])
-            self.assertEqual(config.get_default_source()["id"], "youxiu_bot")
-            self.assertEqual(config.get_source("youyou0_bot")["chat"], "youyou0_bot")
-            self.assertEqual(config.get_source("youyou0_bot")["forward_source"], "@youyou0_bot")
+            self.assertEqual([source["id"] for source in sources], ["alpha_bot", "beta_bot"])
+            self.assertEqual(config.get_default_source()["id"], "alpha_bot")
+            self.assertEqual(config.get_source("beta_bot")["chat"], "beta_bot")
+            self.assertEqual(config.get_source("beta_bot")["forward_source"], "@beta_bot")
 
     def test_default_admin_password_can_be_changed_and_invalidates_sessions(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -226,18 +357,18 @@ class ConfigAuthTests(unittest.TestCase):
                 root / "state",
                 default_download_dir=root / "downloads",
                 default_user="admin",
-                default_password="admin123",
+                default_password="test-password",
             )
             config.init()
             auth = app.AuthManager(config, session_max_age_seconds=604800)
 
-            self.assertTrue(auth.verify_password("admin", "admin123"))
+            self.assertTrue(auth.verify_password("admin", "test-password"))
             token = auth.create_session("admin")
             self.assertIsNotNone(auth.get_session(token))
 
-            auth.change_password("admin", "admin123", "new-password")
+            auth.change_password("admin", "test-password", "new-password")
 
-            self.assertFalse(auth.verify_password("admin", "admin123"))
+            self.assertFalse(auth.verify_password("admin", "test-password"))
             self.assertTrue(auth.verify_password("admin", "new-password"))
             self.assertIsNone(auth.get_session(token))
 
@@ -248,7 +379,7 @@ class ConfigAuthTests(unittest.TestCase):
                 root / "state",
                 default_download_dir=root / "downloads",
                 default_user="admin",
-                default_password="admin123",
+                default_password="test-password",
             )
             config.init()
             target = root / "new-downloads"
@@ -261,7 +392,7 @@ class ConfigAuthTests(unittest.TestCase):
                 root / "state",
                 default_download_dir=root / "fallback",
                 default_user="admin",
-                default_password="admin123",
+                default_password="test-password",
             )
             reloaded.init()
             self.assertEqual(reloaded.get_download_dir(), target)
@@ -277,11 +408,20 @@ class IndexTemplateTests(unittest.TestCase):
         self.assertIn('data-page="downloads"', html)
         self.assertIn('data-page="paths"', html)
         self.assertIn('data-page="sources"', html)
+        self.assertIn('data-page="telegram"', html)
         self.assertIn('data-page="password"', html)
         self.assertIn('id="page-sources"', html)
         self.assertIn('id="sourceSelect"', html)
+        self.assertIn('id="page-telegram"', html)
         self.assertIn('id="page-password"', html)
         self.assertIn('id="dirDialog"', html)
+
+    def test_forwarder_restart_button_is_rendered_only_when_configured(self):
+        html = app.INDEX_HTML
+
+        self.assertIn("status.restart_configured", html)
+        self.assertIn("status.restart_hint", html)
+        self.assertIn("restartForwarder()", html)
 
     def test_index_visible_labels_are_chinese_admin_console_copy(self):
         html = app.INDEX_HTML
@@ -290,6 +430,7 @@ class IndexTemplateTests(unittest.TestCase):
             "下载任务",
             "路径设置",
             "资源来源",
+            "Telegram 授权",
             "密码管理",
             "退出登录",
             "提交下载",
@@ -303,6 +444,7 @@ class IndexTemplateTests(unittest.TestCase):
             ">Downloads<",
             ">Paths<",
             ">Sources<",
+            ">Telegram Auth<",
             ">Password<",
             ">Logout<",
             ">Queue<",
@@ -310,6 +452,100 @@ class IndexTemplateTests(unittest.TestCase):
             ">Select Directory<",
         ]:
             self.assertNotIn(old_label, html)
+
+    def test_index_uses_media_control_center_shell(self):
+        html = app.INDEX_HTML
+
+        for marker in [
+            "TG 下载中控",
+            "媒体归档服务",
+            "媒体归档工作台",
+            'id="submitMessage"',
+            'class="metric forwarder"',
+            "任务输出",
+            "还没有下载任务",
+        ]:
+            self.assertIn(marker, html)
+
+    def test_forwarder_restart_requires_browser_confirmation(self):
+        html = app.INDEX_HTML
+
+        self.assertIn("confirm('确认重启 forwarder？')", html)
+        self.assertLess(html.index("confirm('确认重启 forwarder？')"), html.index("/api/forwarder/restart"))
+
+    def test_index_has_telegram_code_and_qr_authorization_controls(self):
+        html = app.INDEX_HTML
+
+        for marker in [
+            'id="telegramApiId"',
+            'id="telegramPhone"',
+            'id="telegramCode"',
+            'id="telegramPassword"',
+            'id="telegramQr"',
+            "/api/telegram/auth/code/send",
+            "/api/telegram/auth/code/confirm",
+            "/api/telegram/auth/qr/start",
+            "/api/telegram/auth/qr/check",
+        ]:
+            self.assertIn(marker, html)
+
+    def test_index_has_tdl_qr_login_controls(self):
+        html = app.INDEX_HTML
+
+        for marker in [
+            'class="qr-box tdl-qr-box" id="tdlQr"',
+            'id="tdlLoginOutput"',
+            'id="startTdlQrLoginBtn"',
+            "/api/tdl/login/qr/start",
+            "/api/tdl/login/status",
+            "function latestTdlQrOutput(output)",
+            "lastIndexOf('Scan QR')",
+            "data.mode === 'qr'",
+            "latestTdlQrOutput(output)",
+            "document.getElementById('tdlQr').innerHTML",
+        ]:
+            self.assertIn(marker, html)
+
+    def test_index_separates_telethon_and_tdl_authorization(self):
+        html = app.INDEX_HTML
+
+        for marker in [
+            "Telethon 用户授权",
+            "用于转发监听和消息处理",
+            "tdl 下载授权",
+            "用于实际 Telegram 文件下载",
+            'id="tdlPhone"',
+            'id="tdlCode"',
+            'id="tdlPassword"',
+            'id="startTdlCodeLoginBtn"',
+            'id="sendTdlPhoneBtn"',
+            'id="sendTdlCodeBtn"',
+            'id="sendTdlPasswordBtn"',
+            "tdl 输出",
+            "/api/tdl/login/code/start",
+            "/api/tdl/login/input",
+            "/api/tdl/login/status",
+        ]:
+            self.assertIn(marker, html)
+        self.assertNotIn('id="tdlLoginInput"', html)
+        self.assertNotIn('id="sendTdlLoginInputBtn"', html)
+
+    def test_index_uses_pause_and_resume_job_controls(self):
+        html = app.INDEX_HTML
+
+        for marker in [
+            "canceled:'已暂停'",
+            "function pauseJob(id)",
+            "function resumeJob(id)",
+            "/api/jobs/${id}/pause",
+            "/api/jobs/${id}/resume",
+            "onclick=\"pauseJob(${job.id})\">暂停</button>",
+            "onclick=\"resumeJob(${job.id})\">继续</button>",
+        ]:
+            self.assertIn(marker, html)
+
+        self.assertNotIn("onclick=\"cancelJob(${job.id})\">取消</button>", html)
+        self.assertNotIn("onclick=\"retryJob(${job.id})\">重试</button>", html)
 
     def test_login_visible_labels_are_chinese(self):
         html = app.LOGIN_HTML
@@ -320,6 +556,228 @@ class IndexTemplateTests(unittest.TestCase):
         for old_label in [">Admin<", ">Password<", ">Login<", "Login failed"]:
             self.assertNotIn(old_label, html)
 
+    def test_login_uses_media_control_center_shell(self):
+        html = app.LOGIN_HTML
+
+        for marker in ["TG 下载中控", "媒体归档服务", "登录下载中控"]:
+            self.assertIn(marker, html)
+
+    def test_setup_visible_labels_are_chinese(self):
+        html = app.SETUP_HTML
+
+        for label in [
+            "初始化下载中控",
+            "管理员账号",
+            "管理员密码",
+            "下载目录",
+            "Telegram API ID（仅转发器需要）",
+            "Telegram API hash（仅转发器需要）",
+            "Telegram Session 文件（仅转发器需要）",
+            "转发目标频道 ID（仅转发器需要）",
+            "完成初始化",
+        ]:
+            self.assertIn(label, html)
+
+        for old_label in [
+            "Initialize tg-downloader-ui",
+            ">Admin username<",
+            ">Admin password<",
+            ">Download directory<",
+            ">Initialize<",
+        ]:
+            self.assertNotIn(old_label, html)
+
+    def test_setup_prefills_default_download_dir_from_api(self):
+        html = app.SETUP_HTML
+
+        self.assertIn("default_download_dir", html)
+        self.assertIn("document.getElementById('downloadDir').value", html)
+
+
+class TelegramAuthHelperTests(unittest.TestCase):
+    class FakeSession:
+        def __init__(self, value=""):
+            self.value = value
+
+        @staticmethod
+        def save(session):
+            return "STRING_SESSION"
+
+    class FakeClient:
+        def __init__(self, session, api_id, api_hash, proxy=None):
+            self.session = session
+            self.api_id = api_id
+            self.api_hash = api_hash
+            self.proxy = proxy
+            self.connected = False
+            self.signed_in = None
+
+        async def connect(self):
+            self.connected = True
+
+        async def disconnect(self):
+            self.connected = False
+
+        async def send_code_request(self, phone):
+            return SimpleNamespace(phone_code_hash="phone-hash")
+
+        async def sign_in(self, **kwargs):
+            self.signed_in = kwargs
+
+    def test_send_code_saves_phone_code_hash(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            config = {
+                "api_id": "12345",
+                "api_hash": "hash-value",
+                "session_file": str(root / "session.txt"),
+                "proxy": "",
+            }
+            state_path = root / "telegram_auth.json"
+
+            result = app.telegram_send_login_code(
+                config,
+                "+15551234567",
+                state_path=state_path,
+                client_factory=self.FakeClient,
+                session_cls=self.FakeSession,
+            )
+
+            self.assertEqual(result["phone"], "+15551234567")
+            state = json.loads(state_path.read_text(encoding="utf-8"))
+            self.assertEqual(state["phone_code_hash"], "phone-hash")
+
+    def test_confirm_code_writes_string_session_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session_file = root / "session.txt"
+            state_path = root / "telegram_auth.json"
+            state_path.write_text(
+                json.dumps(
+                    {
+                        "phone": "+15551234567",
+                        "phone_code_hash": "phone-hash",
+                    }
+                ),
+                encoding="utf-8",
+            )
+            config = {
+                "api_id": "12345",
+                "api_hash": "hash-value",
+                "session_file": str(session_file),
+                "proxy": "",
+            }
+
+            result = app.telegram_confirm_login_code(
+                config,
+                "+15551234567",
+                "12345",
+                state_path=state_path,
+                client_factory=self.FakeClient,
+                session_cls=self.FakeSession,
+            )
+
+            self.assertTrue(result["ok"])
+            self.assertEqual(session_file.read_text(encoding="utf-8"), "STRING_SESSION\n")
+            self.assertFalse(state_path.exists())
+
+
+class TdlLoginHelperTests(unittest.TestCase):
+    def tearDown(self):
+        with app.TDL_LOGIN_LOCK:
+            app.TDL_LOGIN_ENTRY = None
+
+    def test_tdl_qr_login_starts_process_and_captures_output(self):
+        seen = {}
+
+        class FakeProcess:
+            def __init__(self, args, **kwargs):
+                seen["args"] = args
+                self.stdout = iter(["Scan QR code\n", "████\n"])
+                self.returncode = 0
+
+            def poll(self):
+                return self.returncode
+
+            def wait(self):
+                return self.returncode
+
+        result = app.start_tdl_qr_login(popen_factory=FakeProcess)
+
+        for _ in range(20):
+            status = app.tdl_qr_login_status()
+            if status["state"] == "done":
+                break
+            threading.Event().wait(0.01)
+
+        self.assertEqual(result["state"], "running")
+        self.assertIn("login", seen["args"])
+        self.assertIn("-T", seen["args"])
+        self.assertIn("qr", seen["args"])
+        self.assertEqual(status["state"], "done")
+        self.assertIn("Scan QR code", status["output"])
+        self.assertIn("████", status["output"])
+
+    def test_tdl_code_login_starts_code_mode(self):
+        seen = {}
+
+        class FakeProcess:
+            def __init__(self, args, **kwargs):
+                seen["args"] = args
+                self.stdout = iter([])
+                self.returncode = 0
+
+            def poll(self):
+                return self.returncode
+
+            def wait(self):
+                return self.returncode
+
+        result = app.start_tdl_login("code", popen_factory=FakeProcess)
+
+        self.assertEqual(result["state"], "running")
+        self.assertEqual(result["mode"], "code")
+        self.assertIn("login", seen["args"])
+        self.assertIn("-T", seen["args"])
+        self.assertIn("code", seen["args"])
+
+    def test_tdl_login_input_writes_to_running_process(self):
+        written = []
+
+        class FakeStdin:
+            def write(self, text):
+                written.append(text)
+
+            def flush(self):
+                written.append("<flush>")
+
+        class FakeProcess:
+            stdin = FakeStdin()
+
+            def poll(self):
+                return None
+
+        with app.TDL_LOGIN_LOCK:
+            app.TDL_LOGIN_ENTRY = {
+                "state": "running",
+                "mode": "code",
+                "process": FakeProcess(),
+                "output": "",
+                "returncode": None,
+                "started_at": "",
+                "updated_at": "",
+                "error": "",
+            }
+
+        result = app.send_tdl_login_input("12345")
+
+        self.assertEqual(result["state"], "running")
+        self.assertEqual(written, ["12345\n", "<flush>"])
+
+    def test_tdl_login_input_requires_running_process(self):
+        with self.assertRaisesRegex(RuntimeError, "tdl login is not running"):
+            app.send_tdl_login_input("12345")
+
 
 class JobManagementTests(unittest.TestCase):
     def make_store(self, root):
@@ -327,7 +785,7 @@ class JobManagementTests(unittest.TestCase):
             root / "state",
             default_download_dir=root / "downloads",
             default_user="admin",
-            default_password="admin123",
+            default_password="test-password",
         )
         config.init()
         store = JobStore(root / "state", config)
@@ -370,7 +828,7 @@ class JobManagementTests(unittest.TestCase):
             _, store = self.make_store(root)
             existing = root / "downloads" / "Demo.mp4"
             existing.write_bytes(b"already downloaded")
-            queued = store.create_job(23311, source_id="youyou0_bot")
+            queued = store.create_job(23311, source_id="beta_bot")
             job = store.claim_next()
             payload = {
                 "id": 7487350635,
@@ -381,26 +839,86 @@ class JobManagementTests(unittest.TestCase):
             worker.process_job(job)
 
             result = store.get_job(job["id"])
-            self.assertEqual(result["source_id"], "youyou0_bot")
-            self.assertEqual(result["source_chat"], "youyou0_bot")
+            self.assertEqual(result["source_id"], "beta_bot")
+            self.assertEqual(result["source_chat"], "beta_bot")
             self.assertEqual(
                 worker.export_command[worker.export_command.index("-c") + 1],
-                "youyou0_bot",
+                "beta_bot",
             )
 
-    def test_cancel_queued_job_and_retry_canceled_job(self):
+    def test_pause_queued_job_and_resume_canceled_job(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             _, store = self.make_store(root)
             job = store.create_job(23311)
 
-            canceled = store.cancel_job(job["id"])
+            canceled = store.pause_job(job["id"])
 
             self.assertEqual(canceled["status"], "canceled")
             self.assertEqual(canceled["cancel_requested"], 1)
-            retried = store.retry_job(job["id"])
-            self.assertEqual(retried["status"], "queued")
-            self.assertEqual(retried["cancel_requested"], 0)
+            resumed = store.resume_job(job["id"])
+            self.assertEqual(resumed["status"], "queued")
+            self.assertEqual(resumed["cancel_requested"], 0)
+
+    def test_resume_download_job_preserves_progress_and_marks_resume(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _, store = self.make_store(root)
+            job = store.create_job(23311)
+            Path(job["export_path"]).write_text(
+                json.dumps(
+                    {
+                        "id": 7487350635,
+                        "messages": [
+                            {"id": 23311, "file": "movie.mp4", "text": "片名：Movie"}
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            store.update_job(
+                job["id"],
+                status="canceled",
+                source_file="movie.mp4",
+                final_path=str(root / "downloads" / "movie.mp4"),
+                progress=37.5,
+                downloaded="512.00 MB",
+                speed="2.00 MB/s",
+                eta="10m",
+                cancel_requested=1,
+            )
+
+            resumed = store.resume_job(job["id"])
+
+            self.assertEqual(resumed["status"], "queued")
+            self.assertEqual(resumed["progress"], 37.5)
+            self.assertEqual(resumed["downloaded"], "512.00 MB")
+            self.assertEqual(resumed["speed"], "")
+            self.assertEqual(resumed["eta"], "")
+            self.assertEqual(resumed["cancel_requested"], 0)
+            self.assertEqual(resumed["resume_requested"], 1)
+
+    def test_resume_download_job_requires_existing_export_metadata_for_continue(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _, store = self.make_store(root)
+            job = store.create_job(23311)
+            store.update_job(
+                job["id"],
+                status="canceled",
+                source_file="movie.mp4",
+                final_path=str(root / "downloads" / "movie.mp4"),
+                progress=37.5,
+                downloaded="512.00 MB",
+                cancel_requested=1,
+            )
+
+            resumed = store.resume_job(job["id"])
+
+            self.assertEqual(resumed["status"], "queued")
+            self.assertEqual(resumed["progress"], 0)
+            self.assertEqual(resumed["downloaded"], "")
+            self.assertEqual(resumed["resume_requested"], 0)
 
     def test_cancel_active_job_sets_cancel_requested_and_keeps_status(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -414,6 +932,20 @@ class JobManagementTests(unittest.TestCase):
             self.assertEqual(canceled["status"], "downloading")
             self.assertEqual(canceled["cancel_requested"], 1)
             self.assertEqual(canceled["process_pid"], 12345)
+
+    def test_pause_active_job_sets_cancel_requested_and_keeps_status(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _, store = self.make_store(root)
+            job = store.create_job(23311)
+            store.update_job(job["id"], status="downloading", process_pid=12345)
+
+            paused = store.pause_job(job["id"])
+
+            self.assertEqual(paused["status"], "downloading")
+            self.assertEqual(paused["cancel_requested"], 1)
+            self.assertEqual(paused["process_pid"], 12345)
+
 
     def test_delete_finished_job_removes_row_and_files(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -453,7 +985,7 @@ class AuthHttpTests(unittest.TestCase):
                 root / "state",
                 default_download_dir=root / "downloads",
                 default_user="admin",
-                default_password="admin123",
+                default_password="test-password",
             )
             config.init()
             store = JobStore(root / "state", config)
@@ -472,7 +1004,7 @@ class AuthHttpTests(unittest.TestCase):
                     port,
                     "POST",
                     "/api/auth/login",
-                    {"username": "admin", "password": "admin123"},
+                    {"username": "admin", "password": "test-password"},
                 )
                 self.assertEqual(status, 200)
                 self.assertIn("tgdl_session=", headers["Set-Cookie"])
@@ -506,6 +1038,277 @@ class AuthHttpTests(unittest.TestCase):
                 server.shutdown()
                 server.server_close()
 
+    def test_job_pause_resume_api_requires_auth_and_updates_status(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            config = app.ConfigStore(
+                root / "state",
+                default_download_dir=root / "downloads",
+                default_user="admin",
+                default_password="test-password",
+            )
+            config.init()
+            store = JobStore(root / "state", config)
+            store.init()
+            job = store.create_job(23311)
+            auth = app.AuthManager(config, session_max_age_seconds=604800)
+            server = app.DownloadServer(("127.0.0.1", 0), app.RequestHandler, store, config, auth)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                port = server.server_address[1]
+
+                status, _, _ = self.request(port, "POST", f"/api/jobs/{job['id']}/pause", {})
+                self.assertEqual(status, 401)
+                status, _, _ = self.request(port, "POST", f"/api/jobs/{job['id']}/resume", {})
+                self.assertEqual(status, 401)
+
+                status, headers, _ = self.request(
+                    port,
+                    "POST",
+                    "/api/auth/login",
+                    {"username": "admin", "password": "test-password"},
+                )
+                self.assertEqual(status, 200)
+                cookie = headers["Set-Cookie"].split(";", 1)[0]
+
+                status, _, payload = self.request(
+                    port,
+                    "POST",
+                    f"/api/jobs/{job['id']}/pause",
+                    {},
+                    headers={"Cookie": cookie},
+                )
+                self.assertEqual(status, 200)
+                paused = json.loads(payload)["job"]
+                self.assertEqual(paused["status"], "canceled")
+                self.assertEqual(paused["cancel_requested"], 1)
+
+                status, _, payload = self.request(
+                    port,
+                    "POST",
+                    f"/api/jobs/{job['id']}/resume",
+                    {},
+                    headers={"Cookie": cookie},
+                )
+                self.assertEqual(status, 200)
+                resumed = json.loads(payload)["job"]
+                self.assertEqual(resumed["status"], "queued")
+                self.assertEqual(resumed["cancel_requested"], 0)
+            finally:
+                server.shutdown()
+                server.server_close()
+
+    def test_setup_api_returns_default_download_dir_and_accepts_blank_download_dir(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            downloads = root / "downloads"
+            config = app.ConfigStore(
+                root / "state",
+                default_download_dir=downloads,
+                default_user="admin",
+                default_password="",
+            )
+            config.init()
+            store = JobStore(root / "state", config)
+            store.init()
+            auth = app.AuthManager(config, session_max_age_seconds=604800)
+            server = app.DownloadServer(("127.0.0.1", 0), app.RequestHandler, store, config, auth)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                port = server.server_address[1]
+
+                status, _, payload = self.request(port, "GET", "/api/setup")
+                self.assertEqual(status, 200)
+                setup = json.loads(payload)
+                self.assertTrue(setup["required"])
+                self.assertEqual(setup["default_download_dir"], str(downloads))
+
+                status, _, payload = self.request(
+                    port,
+                    "POST",
+                    "/api/setup",
+                    {"username": "owner", "password": "strong-password", "download_dir": ""},
+                )
+
+                self.assertEqual(status, 201)
+                self.assertEqual(config.get_download_dir(), downloads)
+            finally:
+                server.shutdown()
+                server.server_close()
+
+    def test_tdl_qr_login_api_requires_auth_and_returns_status(self):
+        original_start = app.start_tdl_qr_login
+        original_status = app.tdl_qr_login_status
+        try:
+            app.start_tdl_qr_login = lambda: {
+                "state": "running",
+                "output": "Scan QR code\n",
+            }
+            app.tdl_qr_login_status = lambda: {
+                "state": "running",
+                "output": "Scan QR code\n",
+            }
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                config = app.ConfigStore(
+                    root / "state",
+                    default_download_dir=root / "downloads",
+                    default_user="admin",
+                    default_password="test-password",
+                )
+                config.init()
+                store = JobStore(root / "state", config)
+                store.init()
+                auth = app.AuthManager(config, session_max_age_seconds=604800)
+                server = app.DownloadServer(
+                    ("127.0.0.1", 0), app.RequestHandler, store, config, auth
+                )
+                thread = threading.Thread(target=server.serve_forever, daemon=True)
+                thread.start()
+                try:
+                    port = server.server_address[1]
+
+                    status, _, _ = self.request(port, "POST", "/api/tdl/login/qr/start", {})
+                    self.assertEqual(status, 401)
+
+                    status, headers, _ = self.request(
+                        port,
+                        "POST",
+                        "/api/auth/login",
+                        {"username": "admin", "password": "test-password"},
+                    )
+                    self.assertEqual(status, 200)
+                    cookie = headers["Set-Cookie"].split(";", 1)[0]
+
+                    status, _, payload = self.request(
+                        port,
+                        "POST",
+                        "/api/tdl/login/qr/start",
+                        {},
+                        headers={"Cookie": cookie},
+                    )
+                    self.assertEqual(status, 200)
+                    self.assertEqual(json.loads(payload)["state"], "running")
+
+                    status, _, payload = self.request(
+                        port,
+                        "GET",
+                        "/api/tdl/login/qr/status",
+                        headers={"Cookie": cookie},
+                    )
+                    self.assertEqual(status, 200)
+                    self.assertIn("Scan QR code", json.loads(payload)["output"])
+                finally:
+                    server.shutdown()
+                    server.server_close()
+        finally:
+            app.start_tdl_qr_login = original_start
+            app.tdl_qr_login_status = original_status
+
+    def test_tdl_code_login_api_requires_auth_and_accepts_input(self):
+        had_start = hasattr(app, "start_tdl_code_login")
+        had_status = hasattr(app, "tdl_login_status")
+        had_input = hasattr(app, "send_tdl_login_input")
+        original_start = getattr(app, "start_tdl_code_login", None)
+        original_status = getattr(app, "tdl_login_status", None)
+        original_input = getattr(app, "send_tdl_login_input", None)
+        try:
+            app.start_tdl_code_login = lambda: {
+                "state": "running",
+                "mode": "code",
+                "output": "Enter phone\n",
+            }
+            app.tdl_login_status = lambda: {
+                "state": "running",
+                "mode": "code",
+                "output": "Enter code\n",
+            }
+            app.send_tdl_login_input = lambda text: {
+                "state": "running",
+                "mode": "code",
+                "output": f"sent:{text}",
+            }
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                config = app.ConfigStore(
+                    root / "state",
+                    default_download_dir=root / "downloads",
+                    default_user="admin",
+                    default_password="test-password",
+                )
+                config.init()
+                store = JobStore(root / "state", config)
+                store.init()
+                auth = app.AuthManager(config, session_max_age_seconds=604800)
+                server = app.DownloadServer(
+                    ("127.0.0.1", 0), app.RequestHandler, store, config, auth
+                )
+                thread = threading.Thread(target=server.serve_forever, daemon=True)
+                thread.start()
+                try:
+                    port = server.server_address[1]
+
+                    status, _, _ = self.request(port, "POST", "/api/tdl/login/code/start", {})
+                    self.assertEqual(status, 401)
+                    status, _, _ = self.request(port, "POST", "/api/tdl/login/input", {})
+                    self.assertEqual(status, 401)
+
+                    status, headers, _ = self.request(
+                        port,
+                        "POST",
+                        "/api/auth/login",
+                        {"username": "admin", "password": "test-password"},
+                    )
+                    self.assertEqual(status, 200)
+                    cookie = headers["Set-Cookie"].split(";", 1)[0]
+
+                    status, _, payload = self.request(
+                        port,
+                        "POST",
+                        "/api/tdl/login/code/start",
+                        {},
+                        headers={"Cookie": cookie},
+                    )
+                    self.assertEqual(status, 200)
+                    self.assertEqual(json.loads(payload)["mode"], "code")
+
+                    status, _, payload = self.request(
+                        port,
+                        "GET",
+                        "/api/tdl/login/status",
+                        headers={"Cookie": cookie},
+                    )
+                    self.assertEqual(status, 200)
+                    self.assertIn("Enter code", json.loads(payload)["output"])
+
+                    status, _, payload = self.request(
+                        port,
+                        "POST",
+                        "/api/tdl/login/input",
+                        {"text": "+8613000000000"},
+                        headers={"Cookie": cookie},
+                    )
+                    self.assertEqual(status, 200)
+                    self.assertIn("+8613000000000", json.loads(payload)["output"])
+                finally:
+                    server.shutdown()
+                    server.server_close()
+        finally:
+            if had_start:
+                app.start_tdl_code_login = original_start
+            else:
+                delattr(app, "start_tdl_code_login")
+            if had_status:
+                app.tdl_login_status = original_status
+            else:
+                delattr(app, "tdl_login_status")
+            if had_input:
+                app.send_tdl_login_input = original_input
+            else:
+                delattr(app, "send_tdl_login_input")
+
     def test_directory_browser_requires_auth_and_lists_child_directories(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -518,7 +1321,7 @@ class AuthHttpTests(unittest.TestCase):
                 root / "state",
                 default_download_dir=downloads,
                 default_user="admin",
-                default_password="admin123",
+                default_password="test-password",
             )
             config.init()
             store = JobStore(root / "state", config)
@@ -538,7 +1341,7 @@ class AuthHttpTests(unittest.TestCase):
                     port,
                     "POST",
                     "/api/auth/login",
-                    {"username": "admin", "password": "admin123"},
+                    {"username": "admin", "password": "test-password"},
                 )
                 self.assertEqual(status, 200)
                 cookie = headers["Set-Cookie"].split(";", 1)[0]
@@ -572,7 +1375,7 @@ class AuthHttpTests(unittest.TestCase):
                 root / "state",
                 default_download_dir=root / "downloads",
                 default_user="admin",
-                default_password="admin123",
+                default_password="test-password",
             )
             config.init()
             store = JobStore(root / "state", config)
@@ -591,7 +1394,7 @@ class AuthHttpTests(unittest.TestCase):
                     port,
                     "POST",
                     "/api/auth/login",
-                    {"username": "admin", "password": "admin123"},
+                    {"username": "admin", "password": "test-password"},
                 )
                 self.assertEqual(status, 200)
                 cookie = headers["Set-Cookie"].split(";", 1)[0]
@@ -604,22 +1407,22 @@ class AuthHttpTests(unittest.TestCase):
                 )
                 self.assertEqual(status, 200)
                 data = json.loads(payload)
-                self.assertEqual(data["default_source_id"], "youxiu_bot")
-                self.assertEqual([source["id"] for source in data["sources"]], ["youxiu_bot", "youyou0_bot"])
+                self.assertEqual(data["default_source_id"], "alpha_bot")
+                self.assertEqual([source["id"] for source in data["sources"]], ["alpha_bot", "beta_bot"])
 
                 status, _, payload = self.request(
                     port,
                     "PUT",
                     "/api/sources",
                     {
-                        "default_source_id": "youyou0_bot",
+                        "default_source_id": "beta_bot",
                         "sources": data["sources"],
                     },
                     headers={"Cookie": cookie},
                 )
                 self.assertEqual(status, 200)
-                self.assertEqual(json.loads(payload)["default_source_id"], "youyou0_bot")
-                self.assertEqual(config.get_default_source()["id"], "youyou0_bot")
+                self.assertEqual(json.loads(payload)["default_source_id"], "beta_bot")
+                self.assertEqual(config.get_default_source()["id"], "beta_bot")
             finally:
                 server.shutdown()
                 server.server_close()
@@ -644,6 +1447,190 @@ class ForwarderStatusApiTests(unittest.TestCase):
 
             self.assertEqual(status["state"], "running")
             self.assertEqual(status["channel_title"], "专享的moment")
+
+    def test_forwarder_status_api_reports_restart_not_configured(self):
+        original_default = app.default_forwarder_restart_command
+        original_env = app.os.environ.get("TGDL_FORWARDER_RESTART_CMD")
+        try:
+            app.default_forwarder_restart_command = lambda: []
+            app.os.environ.pop("TGDL_FORWARDER_RESTART_CMD", None)
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                config = app.ConfigStore(
+                    root / "state",
+                    default_download_dir=root / "downloads",
+                    default_user="admin",
+                    default_password="test-password",
+                )
+                config.init()
+                store = JobStore(root / "state", config)
+                store.init()
+                auth = app.AuthManager(config, session_max_age_seconds=604800)
+                server = app.DownloadServer(
+                    ("127.0.0.1", 0), app.RequestHandler, store, config, auth
+                )
+                thread = threading.Thread(target=server.serve_forever, daemon=True)
+                thread.start()
+                try:
+                    helper = AuthHttpTests()
+                    port = server.server_address[1]
+
+                    status, headers, _ = helper.request(
+                        port,
+                        "POST",
+                        "/api/auth/login",
+                        {"username": "admin", "password": "test-password"},
+                    )
+                    self.assertEqual(status, 200)
+                    cookie = headers["Set-Cookie"].split(";", 1)[0]
+
+                    status, _, payload = helper.request(
+                        port,
+                        "GET",
+                        "/api/forwarder/status",
+                        headers={"Cookie": cookie},
+                    )
+
+                    self.assertEqual(status, 200)
+                    data = json.loads(payload)
+                    self.assertEqual(data["state"], "missing")
+                    self.assertFalse(data["restart_configured"])
+                    self.assertIn("TGDL_FORWARDER_RESTART_CMD", data["restart_hint"])
+                finally:
+                    server.shutdown()
+                    server.server_close()
+        finally:
+            app.default_forwarder_restart_command = original_default
+            if original_env is None:
+                app.os.environ.pop("TGDL_FORWARDER_RESTART_CMD", None)
+            else:
+                app.os.environ["TGDL_FORWARDER_RESTART_CMD"] = original_env
+
+    def test_restart_forwarder_runs_configured_command_without_shell(self):
+        result = app.restart_forwarder(
+            command=[
+                sys.executable,
+                "-c",
+                "print('forwarder restarted')",
+            ]
+        )
+
+        self.assertEqual(result["returncode"], 0)
+        self.assertEqual(result["stdout"].strip(), "forwarder restarted")
+
+    def test_restart_forwarder_requires_configured_or_openwrt_command(self):
+        with self.assertRaisesRegex(RuntimeError, "restart command is not configured"):
+            app.restart_forwarder(command="")
+
+    def test_default_forwarder_restart_command_supports_systemd_service(self):
+        command = app.default_forwarder_restart_command(
+            which=lambda name: f"/usr/bin/{name}" if name == "systemctl" else None,
+            exists=lambda path: path == "/etc/systemd/system/tg-downloader-forwarder.service",
+        )
+
+        self.assertEqual(
+            command,
+            ["systemctl", "restart", "tg-downloader-forwarder.service"],
+        )
+
+    def test_default_forwarder_restart_command_restarts_openwrt_init_service(self):
+        command = app.default_forwarder_restart_command(
+            which=lambda name: None,
+            exists=lambda path: path == "/etc/init.d/tg-downloader-ui",
+        )
+
+        self.assertEqual(command[:2], ["/bin/sh", "-c"])
+        self.assertIn("/etc/init.d/tg-downloader-ui restart", command[2])
+        self.assertIn("sleep 1", command[2])
+
+    def test_forwarder_restart_api_requires_auth_and_runs_restart(self):
+        original_restart = app.restart_forwarder
+        try:
+            app.restart_forwarder = lambda: {
+                "ok": True,
+                "returncode": 0,
+                "stdout": "restarted\n",
+                "stderr": "",
+                "args": ["fake"],
+            }
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                config = app.ConfigStore(
+                    root / "state",
+                    default_download_dir=root / "downloads",
+                    default_user="admin",
+                    default_password="test-password",
+                )
+                config.init()
+                store = JobStore(root / "state", config)
+                store.init()
+                auth = app.AuthManager(config, session_max_age_seconds=604800)
+                server = app.DownloadServer(
+                    ("127.0.0.1", 0), app.RequestHandler, store, config, auth
+                )
+                thread = threading.Thread(target=server.serve_forever, daemon=True)
+                thread.start()
+                try:
+                    helper = AuthHttpTests()
+                    port = server.server_address[1]
+
+                    status, _, _ = helper.request(port, "POST", "/api/forwarder/restart", {})
+                    self.assertEqual(status, 401)
+
+                    status, headers, _ = helper.request(
+                        port,
+                        "POST",
+                        "/api/auth/login",
+                        {"username": "admin", "password": "test-password"},
+                    )
+                    self.assertEqual(status, 200)
+                    cookie = headers["Set-Cookie"].split(";", 1)[0]
+
+                    status, _, payload = helper.request(
+                        port,
+                        "POST",
+                        "/api/forwarder/restart",
+                        {},
+                        headers={"Cookie": cookie},
+                    )
+
+                    self.assertEqual(status, 200)
+                    self.assertEqual(json.loads(payload)["stdout"], "restarted\n")
+                finally:
+                    server.shutdown()
+                    server.server_close()
+        finally:
+            app.restart_forwarder = original_restart
+
+
+class DockerComposeTests(unittest.TestCase):
+    def test_compose_runs_forwarder_inside_web_container(self):
+        compose = Path("docker-compose.yml").read_text(encoding="utf-8")
+
+        self.assertIn(
+            "TGDL_FORWARDER_RESTART_CMD: /usr/local/bin/tg-downloader-forwarder-restart",
+            compose,
+        )
+        self.assertNotIn("/var/run/docker.sock", compose)
+        self.assertNotIn("\n  forwarder:", compose)
+
+    def test_dockerfile_installs_single_container_forwarder_scripts(self):
+        dockerfile = Path("Dockerfile").read_text(encoding="utf-8")
+
+        self.assertIn("TGDL_FORWARDER_RESTART_CMD=/usr/local/bin/tg-downloader-forwarder-restart", dockerfile)
+        self.assertIn("COPY docker/entrypoint.sh /usr/local/bin/tg-downloader-ui-entrypoint", dockerfile)
+        self.assertIn("COPY docker/forwarder-supervisor.sh /usr/local/bin/tg-downloader-forwarder-supervisor", dockerfile)
+        self.assertIn("COPY docker/restart-forwarder.sh /usr/local/bin/tg-downloader-forwarder-restart", dockerfile)
+        self.assertIn('ENTRYPOINT ["tg-downloader-ui-entrypoint"]', dockerfile)
+
+    def test_docker_entrypoint_starts_forwarder_supervisor(self):
+        entrypoint = Path("docker/entrypoint.sh").read_text(encoding="utf-8")
+        restart = Path("docker/restart-forwarder.sh").read_text(encoding="utf-8")
+
+        self.assertIn("tg-downloader-forwarder-supervisor", entrypoint)
+        self.assertIn("TGDL_FORWARDER_ENABLED", entrypoint)
+        self.assertIn("TGDL_FORWARDER_PID_FILE", restart)
+        self.assertIn("kill \"$forwarder_pid\"", restart)
 
 
 class WorkerSkipTests(unittest.TestCase):
@@ -712,6 +1699,7 @@ class WorkerSkipTests(unittest.TestCase):
                 super().__init__(store, stop_event)
                 self.payload = payload
                 self.download_dir = download_dir
+                self.download_command = []
 
             def run_command(self, job_id, cmd, status):
                 if status == "exporting":
@@ -721,7 +1709,8 @@ class WorkerSkipTests(unittest.TestCase):
                     )
                     return 0
                 if status == "downloading":
-                    default_path = self.download_dir / "7487350635_23402_[youxiu]正片.mp4"
+                    self.download_command = cmd
+                    default_path = self.download_dir / "7487350635_23402_[source]正片.mp4"
                     default_path.write_bytes(b"movie")
                     return 0
                 return 0
@@ -741,7 +1730,7 @@ class WorkerSkipTests(unittest.TestCase):
                     "messages": [
                         {
                             "id": queued["message_id"],
-                            "file": "[youxiu]正片.mp4",
+                            "file": "[source]正片.mp4",
                             "text": "片名：绵羊侦探团\n首映：2026-05-08(美国)",
                         }
                     ],
@@ -758,11 +1747,142 @@ class WorkerSkipTests(unittest.TestCase):
                 )
                 result = store.get_job(job["id"])
                 self.assertEqual(result["status"], "done")
+                self.assertNotIn("--continue", worker.download_command)
                 self.assertEqual(result["final_filename"], "绵羊侦探团 (2026).mp4")
                 self.assertEqual(Path(result["final_path"]), final_path)
                 self.assertEqual(final_path.read_bytes(), b"movie")
                 self.assertTrue((final_path.parent / "绵羊侦探团 (2026).telegram.json").exists())
                 self.assertTrue((final_path.parent / "绵羊侦探团 (2026).telegram.txt").exists())
+        finally:
+            app.DOWNLOAD_DIR = original_download_dir
+
+    def test_resumed_structured_movie_uses_tdl_continue_with_export_file(self):
+        class ResumeDownloadWorker(DownloadWorker):
+            def __init__(self, store, stop_event, download_dir):
+                super().__init__(store, stop_event)
+                self.download_dir = download_dir
+                self.download_command = []
+
+            def run_command(self, job_id, cmd, status):
+                if status == "exporting":
+                    raise AssertionError("resume should reuse existing export metadata")
+                if status == "downloading":
+                    self.download_command = cmd
+                    default_path = self.download_dir / "7487350635_23402_[source]姝ｇ墖.mp4"
+                    default_path.write_bytes(b"movie")
+                    return 0
+                return 0
+
+        original_download_dir = app.DOWNLOAD_DIR
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                app.DOWNLOAD_DIR = root / "downloads"
+                app.DOWNLOAD_DIR.mkdir()
+
+                store = JobStore(root / "state")
+                store.init()
+                queued = store.create_job(23402)
+                job = store.claim_next()
+                payload = {
+                    "id": 7487350635,
+                    "messages": [
+                        {
+                            "id": queued["message_id"],
+                            "file": "[source]姝ｇ墖.mp4",
+                            "text": "鐗囧悕锛氱坏缇婁睛鎺㈠洟\n棣栨槧锛?026-05-08(缇庡浗)",
+                        }
+                    ],
+                }
+                Path(job["export_path"]).write_text(
+                    json.dumps(payload, ensure_ascii=False), encoding="utf-8"
+                )
+                store.update_job(
+                    job["id"],
+                    source_file="[source]姝ｇ墖.mp4",
+                    progress=37.5,
+                    downloaded="512.00 MB",
+                    resume_requested=1,
+                )
+                job = store.get_job(job["id"])
+
+                worker = ResumeDownloadWorker(store, threading.Event(), app.DOWNLOAD_DIR)
+                worker.process_job(job)
+
+                self.assertIn("--continue", worker.download_command)
+                self.assertIn("-f", worker.download_command)
+                self.assertIn(str(job["export_path"]), worker.download_command)
+                self.assertLess(
+                    worker.download_command.index("download"),
+                    worker.download_command.index("--continue"),
+                )
+                result = store.get_job(job["id"])
+                self.assertEqual(result["status"], "done")
+                self.assertEqual(result["resume_requested"], 0)
+        finally:
+            app.DOWNLOAD_DIR = original_download_dir
+
+    def test_resumed_download_uses_job_download_dir_not_global_default(self):
+        class ResumeDownloadWorker(DownloadWorker):
+            def __init__(self, store, stop_event, download_dir):
+                super().__init__(store, stop_event)
+                self.download_dir = download_dir
+                self.download_command = []
+
+            def run_command(self, job_id, cmd, status):
+                if status == "exporting":
+                    raise AssertionError("resume should reuse existing export metadata")
+                if status == "downloading":
+                    self.download_command = cmd
+                    default_path = self.download_dir / "7487350635_23402_[source]正片.mp4"
+                    default_path.write_bytes(b"movie")
+                    return 0
+                return 0
+
+        original_download_dir = app.DOWNLOAD_DIR
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                app.DOWNLOAD_DIR = root / "default-downloads"
+                app.DOWNLOAD_DIR.mkdir()
+                custom_dir = root / "custom-downloads"
+                custom_dir.mkdir()
+
+                store = JobStore(root / "state")
+                store.init()
+                queued = store.create_job(23402, download_dir=custom_dir)
+                job = store.claim_next()
+                payload = {
+                    "id": 7487350635,
+                    "messages": [
+                        {
+                            "id": queued["message_id"],
+                            "file": "[source]正片.mp4",
+                            "text": "片名：绵羊侦探团\n首映：2026-05-08(美国)",
+                        }
+                    ],
+                }
+                Path(job["export_path"]).write_text(
+                    json.dumps(payload, ensure_ascii=False), encoding="utf-8"
+                )
+                store.update_job(
+                    job["id"],
+                    source_file="[source]正片.mp4",
+                    progress=37.5,
+                    downloaded="512.00 MB",
+                    resume_requested=1,
+                )
+                job = store.get_job(job["id"])
+
+                worker = ResumeDownloadWorker(store, threading.Event(), custom_dir)
+                worker.process_job(job)
+
+                self.assertIn("--continue", worker.download_command)
+                self.assertEqual(
+                    worker.download_command[worker.download_command.index("-d") + 1],
+                    str(custom_dir),
+                )
+                self.assertNotIn(str(app.DOWNLOAD_DIR), worker.download_command)
         finally:
             app.DOWNLOAD_DIR = original_download_dir
 

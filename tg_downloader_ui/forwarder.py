@@ -19,18 +19,20 @@ except ImportError:  # pragma: no cover - exercised by OpenWRT flat deployment
     from sources import read_sources_from_config
 
 
-STATE_DIR = Path(os.environ.get("TGDL_STATE_DIR", "/mnt/sata1-5/tg-downloader-ui"))
+STATE_DIR = Path(
+    os.environ.get("TGDL_STATE_DIR", str(Path.home() / ".local/state/tg-downloader-ui"))
+)
 CONFIG_PATH = STATE_DIR / "config.json"
 LOG_PATH = Path(os.environ.get("TGDL_FORWARDER_LOG", str(STATE_DIR / "forwarder.log")))
 STATUS_PATH = Path(
     os.environ.get("TGDL_FORWARDER_STATUS", str(STATE_DIR / "forwarder_status.json"))
 )
-API_ID = int(os.environ.get("TGDL_API_ID", "26375241"))
+API_ID = os.environ.get("TGDL_API_ID", "")
 API_HASH = os.environ.get("TGDL_API_HASH", "")
-SESSION_FILE = Path(os.environ.get("TGDL_SESSION_FILE", "/opt/tg_session.txt"))
-PROXY_URL = os.environ.get("TGDL_PROXY", "socks5://127.0.0.1:7891")
-SOURCE = os.environ.get("TGDL_FORWARD_SOURCE", "@Youxiu_bot")
-CHANNEL_ID = int(os.environ.get("TGDL_FORWARD_CHANNEL_ID", "-1004496489706"))
+SESSION_FILE = Path(os.environ.get("TGDL_SESSION_FILE", str(STATE_DIR / "session.txt")))
+PROXY_URL = os.environ.get("TGDL_TELEGRAM_PROXY", os.environ.get("TGDL_PROXY", ""))
+SOURCE = os.environ.get("TGDL_FORWARD_SOURCE", "")
+CHANNEL_ID = os.environ.get("TGDL_FORWARD_CHANNEL_ID", "")
 
 
 def utcish_now() -> str:
@@ -53,6 +55,88 @@ def parse_proxy_url(value: str) -> tuple[str, str, int] | None:
     if not parsed.scheme or not parsed.hostname or not parsed.port:
         raise ValueError(f"invalid proxy url: {value}")
     return (parsed.scheme, parsed.hostname, int(parsed.port))
+
+
+def normalize_forward_channel_id(value: str) -> int:
+    text = str(value or "").strip()
+    try:
+        parsed = int(text)
+    except ValueError as exc:
+        raise RuntimeError("TGDL_FORWARD_CHANNEL_ID must be an integer") from exc
+    if parsed > 0:
+        digits = text.lstrip("+")
+        if digits.startswith("100") and len(digits) > 10:
+            return -parsed
+        return int(f"-100{digits}")
+    return parsed
+
+
+def validate_runtime_config(
+    api_id: str = API_ID,
+    api_hash: str = API_HASH,
+    channel_id: str = CHANNEL_ID,
+) -> tuple[int, str, int]:
+    api_id_text = str(api_id or "").strip()
+    api_hash_text = str(api_hash or "").strip()
+    channel_id_text = str(channel_id or "").strip()
+    if not api_id_text:
+        raise RuntimeError("TGDL_API_ID is required")
+    if not api_hash_text:
+        raise RuntimeError("TGDL_API_HASH is required")
+    if not channel_id_text:
+        raise RuntimeError("TGDL_FORWARD_CHANNEL_ID is required")
+    try:
+        parsed_api_id = int(api_id_text)
+    except ValueError as exc:
+        raise RuntimeError("TGDL_API_ID must be an integer") from exc
+    parsed_channel_id = normalize_forward_channel_id(channel_id_text)
+    return parsed_api_id, api_hash_text, parsed_channel_id
+
+
+def load_telegram_config(config_path: Path = CONFIG_PATH) -> dict[str, str]:
+    try:
+        data = json.loads(config_path.read_text(encoding="utf-8") or "{}")
+    except FileNotFoundError:
+        return {}
+    telegram = data.get("telegram") or {}
+    return {
+        "api_id": str(telegram.get("api_id") or ""),
+        "api_hash": str(telegram.get("api_hash") or ""),
+        "session_file": str(telegram.get("session_file") or ""),
+        "proxy": str(telegram.get("proxy") or ""),
+        "forward_channel_id": str(telegram.get("forward_channel_id") or ""),
+    }
+
+
+def resolve_runtime_config(config_path: Path = CONFIG_PATH) -> dict[str, Any]:
+    telegram = load_telegram_config(config_path)
+    api_id, api_hash, channel_id = validate_runtime_config(
+        api_id=os.environ.get("TGDL_API_ID") or telegram.get("api_id") or "",
+        api_hash=os.environ.get("TGDL_API_HASH") or telegram.get("api_hash") or "",
+        channel_id=(
+            os.environ.get("TGDL_FORWARD_CHANNEL_ID")
+            or telegram.get("forward_channel_id")
+            or ""
+        ),
+    )
+    session_file = Path(
+        os.environ.get("TGDL_SESSION_FILE")
+        or telegram.get("session_file")
+        or str(STATE_DIR / "session.txt")
+    )
+    proxy = (
+        os.environ.get("TGDL_TELEGRAM_PROXY")
+        or os.environ.get("TGDL_PROXY")
+        or telegram.get("proxy")
+        or ""
+    )
+    return {
+        "api_id": api_id,
+        "api_hash": api_hash,
+        "channel_id": channel_id,
+        "session_file": session_file,
+        "proxy": proxy,
+    }
 
 
 def load_forward_sources(config_path: Path = CONFIG_PATH) -> list[dict[str, Any]]:
@@ -86,30 +170,54 @@ def source_label_for_sender(sender: Any, sources: list[dict[str, Any]]) -> str:
     return ""
 
 
+def is_video_document(doc: Any) -> bool:
+    mime_type = str(getattr(doc, "mime_type", "") or "").lower()
+    if mime_type.startswith("video/"):
+        return True
+    for attr in getattr(doc, "attributes", []) or []:
+        if "video" in type(attr).__name__.lower():
+            return True
+    return False
+
+
+def video_document_from_message(message: Any) -> Any | None:
+    media = getattr(message, "media", None)
+    doc = getattr(media, "document", None) or getattr(message, "document", None)
+    if doc and is_video_document(doc):
+        return doc
+    video = getattr(message, "video", None)
+    if video and is_video_document(video):
+        return video
+    return None
+
+
 def format_forward_message(message: Any, source_label: str = "") -> str:
+    doc = video_document_from_message(message)
+    if not doc:
+        return ""
+
     parts: list[str] = []
     text = getattr(message, "text", "")
     if text:
         parts.append(str(text))
 
-    media = getattr(message, "media", None)
     caption = getattr(message, "caption", "")
-    if media and caption and caption != text:
+    if caption and caption != text:
         parts.append(str(caption))
 
-    if media:
-        doc = getattr(media, "document", None)
-        if doc:
-            filename = ""
-            for attr in getattr(doc, "attributes", []) or []:
-                value = getattr(attr, "file_name", None)
-                if value:
-                    filename = str(value)
-                    break
-            size = int(getattr(doc, "size", 0) or 0)
-            parts.append(
-                f"\n\n文件: {filename}\n大小: {human_size(size)}\n消息ID: {getattr(message, 'id', '')}"
-            )
+    if not parts:
+        return ""
+
+    filename = ""
+    for attr in getattr(doc, "attributes", []) or []:
+        value = getattr(attr, "file_name", None)
+        if value:
+            filename = str(value)
+            break
+    size = int(getattr(doc, "size", 0) or 0)
+    parts.append(
+        f"\n\n文件: {filename}\n大小: {human_size(size)}\n消息ID: {getattr(message, 'id', '')}"
+    )
     if source_label and parts:
         parts.insert(0, f"Source: {source_label}")
     return "\n".join(part for part in parts if part)
@@ -161,35 +269,41 @@ def read_status(
 
 
 async def amain() -> int:
-    if not API_HASH:
-        raise RuntimeError("TGDL_API_HASH is required")
-    if not SESSION_FILE.exists():
-        raise RuntimeError(f"session file not found: {SESSION_FILE}")
+    runtime = resolve_runtime_config()
+    session_file = runtime["session_file"]
+    if not session_file.exists():
+        raise RuntimeError(f"session file not found: {session_file}")
 
     from telethon import TelegramClient, events
     from telethon.sessions import StringSession
 
-    session_str = SESSION_FILE.read_text(encoding="utf-8").strip()
+    session_str = session_file.read_text(encoding="utf-8").strip()
     client = TelegramClient(
         StringSession(session_str),
-        API_ID,
-        API_HASH,
-        proxy=parse_proxy_url(PROXY_URL),
+        runtime["api_id"],
+        runtime["api_hash"],
+        proxy=parse_proxy_url(runtime["proxy"]),
     )
     sources = load_forward_sources()
     forward_users = [str(source["forward_source"]) for source in sources]
     if not forward_users:
         raise RuntimeError("no enabled forward sources configured")
     sent_count = 0
-    write_status(state="starting", sent_count=sent_count, last_error="")
+    write_status(
+        state="starting",
+        channel_id=runtime["channel_id"],
+        sent_count=sent_count,
+        last_error="",
+    )
     await client.start()
 
     me = await client.get_me()
-    channel = await client.get_entity(CHANNEL_ID)
+    channel = await client.get_entity(runtime["channel_id"])
     log_line(f"USER={getattr(me, 'first_name', '')}(@{getattr(me, 'username', '') or ''})")
-    log_line(f"CHANNEL={getattr(channel, 'title', CHANNEL_ID)}")
+    log_line(f"CHANNEL={getattr(channel, 'title', runtime['channel_id'])}")
     write_status(
         state="running",
+        channel_id=runtime["channel_id"],
         channel_title=getattr(channel, "title", ""),
         sent_count=sent_count,
         last_error="",
@@ -205,6 +319,7 @@ async def amain() -> int:
         info = format_forward_message(event.message, source_label=source_label)
         write_status(
             state="running",
+            channel_id=runtime["channel_id"],
             channel_title=getattr(channel, "title", ""),
             sent_count=sent_count,
             last_source=source_label,
@@ -220,6 +335,7 @@ async def amain() -> int:
             log_line(f"SENT_OK: {preview}")
             write_status(
                 state="running",
+                channel_id=runtime["channel_id"],
                 channel_title=getattr(channel, "title", ""),
                 sent_count=sent_count,
                 last_source=source_label,
@@ -230,15 +346,18 @@ async def amain() -> int:
             log_line(f"SENT_ERR: {exc}")
             write_status(
                 state="running",
+                channel_id=runtime["channel_id"],
                 channel_title=getattr(channel, "title", ""),
                 sent_count=sent_count,
                 last_source=source_label,
                 last_error=str(exc),
             )
 
-    log_line(f"LISTENING: {', '.join(forward_users)} -> {getattr(channel, 'title', CHANNEL_ID)}")
+    log_line(
+        f"LISTENING: {', '.join(forward_users)} -> {getattr(channel, 'title', runtime['channel_id'])}"
+    )
     await client.run_until_disconnected()
-    write_status(state="stopped", sent_count=sent_count)
+    write_status(state="stopped", channel_id=runtime["channel_id"], sent_count=sent_count)
     return 0
 
 

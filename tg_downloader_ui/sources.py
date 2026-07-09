@@ -8,20 +8,20 @@ from pathlib import Path
 from typing import Any
 
 
-DEFAULT_SOURCE_ID = "youxiu_bot"
+DEFAULT_SOURCE_ID = "alpha_bot"
 DEFAULT_SOURCES: list[dict[str, Any]] = [
     {
-        "id": "youxiu_bot",
-        "label": "Youxiu Bot",
-        "chat": "Youxiu_bot",
-        "forward_source": "@Youxiu_bot",
+        "id": "alpha_bot",
+        "label": "Alpha Bot",
+        "chat": "alpha_bot",
+        "forward_source": "@alpha_bot",
         "enabled": True,
     },
     {
-        "id": "youyou0_bot",
-        "label": "Youyou0 Bot",
-        "chat": "youyou0_bot",
-        "forward_source": "@youyou0_bot",
+        "id": "beta_bot",
+        "label": "Beta Bot",
+        "chat": "beta_bot",
+        "forward_source": "@beta_bot",
         "enabled": True,
     },
 ]
