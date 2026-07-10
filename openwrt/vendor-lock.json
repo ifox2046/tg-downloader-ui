@@ -1,0 +1,54 @@
+{
+  "packages": [
+    {
+      "name": "telethon",
+      "version": "1.44.0",
+      "archive": "wheel",
+      "url": "https://files.pythonhosted.org/packages/82/fd/4ad621d7a4b8655dfc964ee1c1267407496ec6fd10c91901a64ea29c16c8/telethon-1.44.0-py3-none-any.whl",
+      "sha256": "52fc49efb67a4916c2aedcb295ad286f4afa2aba9bf15d83ed2acdc64af0c718",
+      "package_prefix": "telethon/",
+      "strip_prefix": "",
+      "license_member": "telethon-1.44.0.dist-info/licenses/LICENSE"
+    },
+    {
+      "name": "qrcode",
+      "version": "8.2",
+      "archive": "wheel",
+      "url": "https://files.pythonhosted.org/packages/dd/b8/d2d6d731733f51684bbf76bf34dab3b70a9148e8f2cef2bb544fccec681a/qrcode-8.2-py3-none-any.whl",
+      "sha256": "16e64e0716c14960108e85d853062c9e8bba5ca8252c0b4d0231b9df4060ff4f",
+      "package_prefix": "qrcode/",
+      "strip_prefix": "",
+      "license_member": "qrcode-8.2.dist-info/LICENSE"
+    },
+    {
+      "name": "rsa",
+      "version": "4.9.1",
+      "archive": "wheel",
+      "url": "https://files.pythonhosted.org/packages/64/8d/0133e4eb4beed9e425d9a98ed6e081a55d195481b7632472be1af08d2f6b/rsa-4.9.1-py3-none-any.whl",
+      "sha256": "68635866661c6836b8d39430f97a996acbd61bfa49406748ea243539fe239762",
+      "package_prefix": "rsa/",
+      "strip_prefix": "",
+      "license_member": "rsa-4.9.1.dist-info/LICENSE"
+    },
+    {
+      "name": "pyasn1",
+      "version": "0.6.1",
+      "archive": "wheel",
+      "url": "https://files.pythonhosted.org/packages/c8/f1/d6a797abb14f6283c0ddff96bbdd46937f64122b8c925cab503dd37f8214/pyasn1-0.6.1-py3-none-any.whl",
+      "sha256": "0d632f46f2ba09143da3a8afe9e33fb6f92fa2320ab7e886e2d0f7672af84629",
+      "package_prefix": "pyasn1/",
+      "strip_prefix": "",
+      "license_member": "pyasn1-0.6.1.dist-info/LICENSE.rst"
+    },
+    {
+      "name": "pyaes",
+      "version": "1.6.1",
+      "archive": "tar.gz",
+      "url": "https://files.pythonhosted.org/packages/44/66/2c17bae31c906613795711fc78045c285048168919ace2220daa372c7d72/pyaes-1.6.1.tar.gz",
+      "sha256": "02c1b1405c38d3c370b085fb952dd8bea3fadcee6411ad99f312cc129c536d8f",
+      "package_prefix": "pyaes-1.6.1/pyaes/",
+      "strip_prefix": "pyaes-1.6.1/",
+      "license_member": "pyaes-1.6.1/LICENSE.txt"
+    }
+  ]
+}

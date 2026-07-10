@@ -5,15 +5,20 @@ from __future__ import annotations
 
 import argparse
 import gzip
+import hashlib
+import hmac
 import io
+import json
 import re
 import tarfile
-from pathlib import Path
+import urllib.request
+import zipfile
+from pathlib import Path, PurePosixPath
 
 
 PACKAGE_NAME = "tg-downloader-ui"
 ARCHITECTURE = "all"
-DEPENDS = ["python3", "python3-sqlite3", "python3-pip", "ca-bundle", "curl", "tar"]
+DEPENDS = ["python3", "python3-sqlite3", "ca-bundle"]
 
 
 DATA_FILES = [
@@ -42,10 +47,13 @@ DATA_FILES = [
 DATA_DIRS = [
     "./opt",
     "./opt/tg-downloader-ui",
+    "./opt/tg-downloader-ui/vendor",
     "./etc",
     "./etc/init.d",
     "./usr",
     "./usr/share",
+    "./usr/share/licenses",
+    "./usr/share/licenses/tg-downloader-ui",
     "./usr/share/luci",
     "./usr/share/luci/menu.d",
     "./usr/share/rpcd",
@@ -70,7 +78,6 @@ fi
 
 chmod +x /etc/init.d/tg-downloader-ui
 /etc/init.d/tg-downloader-ui enable >/dev/null 2>&1 || true
-python3 -m pip install --no-cache-dir 'telethon>=1.35' 'qrcode>=7.4' >/dev/null 2>&1 || true
 
 rm -rf /tmp/luci-indexcache /tmp/luci-modulecache
 /etc/init.d/rpcd restart >/dev/null 2>&1 || true
@@ -164,6 +171,86 @@ def control_tar(version: str) -> bytes:
     )
 
 
+def download_bytes(url: str) -> bytes:
+    with urllib.request.urlopen(url, timeout=60) as response:
+        return response.read()
+
+
+def verify_sha256(payload: bytes, expected: str) -> None:
+    actual = hashlib.sha256(payload).hexdigest()
+    if not hmac.compare_digest(actual, expected):
+        raise ValueError(
+            f"vendor artifact sha256 mismatch: expected {expected}, got {actual}"
+        )
+
+
+def archive_files(payload: bytes, archive_type: str) -> dict[str, bytes]:
+    files: dict[str, bytes] = {}
+    if archive_type == "wheel":
+        with zipfile.ZipFile(io.BytesIO(payload)) as archive:
+            for info in archive.infolist():
+                if info.is_dir():
+                    continue
+                path = PurePosixPath(info.filename)
+                if path.is_absolute() or ".." in path.parts:
+                    raise ValueError(f"unsafe vendor member: {info.filename}")
+                files[path.as_posix()] = archive.read(info)
+        return files
+    if archive_type == "tar.gz":
+        with tarfile.open(fileobj=io.BytesIO(payload), mode="r:gz") as archive:
+            for member in archive.getmembers():
+                if not member.isfile():
+                    continue
+                path = PurePosixPath(member.name)
+                if path.is_absolute() or ".." in path.parts:
+                    raise ValueError(f"unsafe vendor member: {member.name}")
+                handle = archive.extractfile(member)
+                if handle is not None:
+                    files[path.as_posix()] = handle.read()
+        return files
+    raise ValueError(f"unsupported vendor archive: {archive_type}")
+
+
+def vendor_entries(
+    root: Path, fetcher=download_bytes
+) -> list[tuple[str, bytes, int]]:
+    lock = json.loads(
+        (root / "openwrt/vendor-lock.json").read_text(encoding="utf-8")
+    )
+    entries: list[tuple[str, bytes, int]] = []
+    for package in lock["packages"]:
+        payload = fetcher(package["url"])
+        verify_sha256(payload, package["sha256"])
+        files = archive_files(payload, package["archive"])
+        package_prefix = package["package_prefix"]
+        strip_prefix = package["strip_prefix"]
+        copied = 0
+        for name, content in files.items():
+            if not name.startswith(package_prefix):
+                continue
+            relative = name[len(strip_prefix) :] if strip_prefix else name
+            path = PurePosixPath(relative)
+            if path.is_absolute() or ".." in path.parts:
+                raise ValueError(f"unsafe vendor target: {relative}")
+            entries.append(
+                (f"./opt/tg-downloader-ui/vendor/{path.as_posix()}", content, 0o644)
+            )
+            copied += 1
+        if not copied:
+            raise ValueError(f"vendor package files not found: {package['name']}")
+        license_member = package["license_member"]
+        if license_member not in files:
+            raise ValueError(f"vendor license not found: {package['name']}")
+        entries.append(
+            (
+                f"./usr/share/licenses/tg-downloader-ui/{package['name']}-LICENSE",
+                files[license_member],
+                0o644,
+            )
+        )
+    return entries
+
+
 def data_tar(root: Path) -> bytes:
     entries: list[tuple[str, bytes | None, int]] = [
         (directory, None, 0o755) for directory in DATA_DIRS
@@ -173,6 +260,7 @@ def data_tar(root: Path) -> bytes:
         if not path.is_file():
             raise FileNotFoundError(path)
         entries.append((target, path.read_bytes(), mode))
+    entries.extend(vendor_entries(root))
     return tar_gz(entries)
 
 

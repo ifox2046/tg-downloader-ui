@@ -1,10 +1,13 @@
+import hashlib
 import importlib.util
 import io
 import json
 import tarfile
 import tempfile
 import unittest
+import zipfile
 from pathlib import Path
+from unittest import mock
 
 
 def load_builder():
@@ -28,12 +31,122 @@ def read_outer_tar_members(path: Path) -> dict[str, bytes]:
     return members
 
 
+def make_wheel(package_name: str, license_member: str) -> bytes:
+    out = io.BytesIO()
+    with zipfile.ZipFile(out, mode="w") as archive:
+        archive.writestr(f"{package_name}/__init__.py", "VERSION = 'test'\n")
+        archive.writestr(license_member, f"license for {package_name}\n")
+    return out.getvalue()
+
+
+def make_sdist(package_name: str, version: str, license_member: str) -> bytes:
+    out = io.BytesIO()
+    with tarfile.open(fileobj=out, mode="w:gz") as archive:
+        files = {
+            f"{package_name}-{version}/{package_name}/__init__.py": b"VERSION = 'test'\n",
+            license_member: f"license for {package_name}\n".encode(),
+        }
+        for name, payload in files.items():
+            info = tarfile.TarInfo(name)
+            info.size = len(payload)
+            archive.addfile(info, io.BytesIO(payload))
+    return out.getvalue()
+
+
+def fake_vendor_lock_and_payloads():
+    definitions = [
+        ("telethon", "1.44.0", "wheel", "telethon/", "", "telethon-1.44.0.dist-info/licenses/LICENSE"),
+        ("qrcode", "8.2", "wheel", "qrcode/", "", "qrcode-8.2.dist-info/LICENSE"),
+        ("rsa", "4.9.1", "wheel", "rsa/", "", "rsa-4.9.1.dist-info/LICENSE"),
+        ("pyasn1", "0.6.1", "wheel", "pyasn1/", "", "pyasn1-0.6.1.dist-info/LICENSE.rst"),
+        ("pyaes", "1.6.1", "tar.gz", "pyaes-1.6.1/pyaes/", "pyaes-1.6.1/", "pyaes-1.6.1/LICENSE.txt"),
+    ]
+    packages = []
+    payloads = {}
+    for name, version, archive_type, prefix, strip_prefix, license_member in definitions:
+        payload = (
+            make_wheel(name, license_member)
+            if archive_type == "wheel"
+            else make_sdist(name, version, license_member)
+        )
+        url = f"https://example.invalid/{name}-{version}"
+        payloads[url] = payload
+        packages.append(
+            {
+                "name": name,
+                "version": version,
+                "archive": archive_type,
+                "url": url,
+                "sha256": hashlib.sha256(payload).hexdigest(),
+                "package_prefix": prefix,
+                "strip_prefix": strip_prefix,
+                "license_member": license_member,
+            }
+        )
+    return {"packages": packages}, payloads
+
+
+def fake_vendor_entries():
+    entries = []
+    for package in ["telethon", "qrcode", "rsa", "pyasn1", "pyaes"]:
+        entries.extend(
+            [
+                (
+                    f"./opt/tg-downloader-ui/vendor/{package}/__init__.py",
+                    b"VERSION = 'test'\n",
+                    0o644,
+                ),
+                (
+                    f"./usr/share/licenses/tg-downloader-ui/{package}-LICENSE",
+                    f"license for {package}\n".encode(),
+                    0o644,
+                ),
+            ]
+        )
+    return entries
+
+
 class OpenWrtIpkBuilderTests(unittest.TestCase):
+    def test_vendor_entries_map_packages_and_licenses(self):
+        builder = load_builder()
+        lock, payloads = fake_vendor_lock_and_payloads()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "openwrt").mkdir()
+            (root / "openwrt/vendor-lock.json").write_text(
+                json.dumps(lock), encoding="utf-8"
+            )
+            entries = builder.vendor_entries(root, fetcher=payloads.__getitem__)
+
+        names = {name for name, _, _ in entries}
+        for package in ["telethon", "qrcode", "rsa", "pyasn1", "pyaes"]:
+            self.assertIn(
+                f"./opt/tg-downloader-ui/vendor/{package}/__init__.py", names
+            )
+            self.assertIn(
+                f"./usr/share/licenses/tg-downloader-ui/{package}-LICENSE", names
+            )
+
+    def test_vendor_entries_reject_sha_mismatch(self):
+        builder = load_builder()
+        lock, payloads = fake_vendor_lock_and_payloads()
+        lock["packages"][0]["sha256"] = "0" * 64
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "openwrt").mkdir()
+            (root / "openwrt/vendor-lock.json").write_text(
+                json.dumps(lock), encoding="utf-8"
+            )
+            with self.assertRaisesRegex(ValueError, "sha256 mismatch"):
+                builder.vendor_entries(root, fetcher=payloads.__getitem__)
+
     def test_build_openwrt_ipk_contains_control_scripts_and_runtime_files(self):
         root = Path(__file__).resolve().parents[1]
         builder = load_builder()
 
-        with tempfile.TemporaryDirectory() as tmp:
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(
+            builder, "vendor_entries", return_value=fake_vendor_entries()
+        ):
             ipk_path = builder.build_ipk(root, Path(tmp))
 
             self.assertEqual(ipk_path.name, "tg-downloader-ui_0.1.0_all.ipk")
@@ -54,12 +167,10 @@ class OpenWrtIpkBuilderTests(unittest.TestCase):
             self.assertIn("Architecture: all", control)
             self.assertIn("python3", control)
             self.assertIn("python3-sqlite3", control)
-            self.assertIn("python3-pip", control)
-            self.assertIn("curl", control)
+            self.assertNotIn("python3-pip", control)
+            self.assertNotIn("curl", control)
             self.assertIn("[ ! -f /etc/tg-downloader-ui.env ]", postinst)
-            self.assertIn("pip install --no-cache-dir", postinst)
-            self.assertIn("telethon>=1.35", postinst)
-            self.assertIn("qrcode>=7.4", postinst)
+            self.assertNotIn("pip install", postinst)
             self.assertIn("/etc/init.d/tg-downloader-ui enable", postinst)
 
             data_tar = tarfile.open(fileobj=io.BytesIO(members["data.tar.gz"]), mode="r:gz")
@@ -74,6 +185,13 @@ class OpenWrtIpkBuilderTests(unittest.TestCase):
                 "./usr/share/rpcd/acl.d/luci-app-tg-downloader-ui.json",
                 "./www/luci-static/resources/view/tg-downloader-ui/link.js",
             }
+            for package in ["telethon", "qrcode", "rsa", "pyasn1", "pyaes"]:
+                expected.add(
+                    f"./opt/tg-downloader-ui/vendor/{package}/__init__.py"
+                )
+                expected.add(
+                    f"./usr/share/licenses/tg-downloader-ui/{package}-LICENSE"
+                )
             self.assertTrue(expected.issubset(data_names))
             self.assertEqual(data_tar.getmember("./etc/init.d/tg-downloader-ui").mode, 0o755)
             self.assertEqual(data_tar.getmember("./opt/tg-downloader-ui/app.py").mode, 0o755)
@@ -125,8 +243,12 @@ class OpenWrtIpkBuilderTests(unittest.TestCase):
 
         self.assertEqual(
             init_script.count("set -a; [ -f /etc/tg-downloader-ui.env ]"),
-            2,
+            1,
         )
+        self.assertEqual(
+            init_script.count("PYTHONPATH=/opt/tg-downloader-ui/vendor"), 2
+        )
+        self.assertIn('${TGDL_FORWARDER_ENABLED:-0}" = "1"', init_script)
         self.assertIn("exec /usr/bin/python3 /opt/tg-downloader-ui/app.py", init_script)
         self.assertIn("exec /usr/bin/python3 /opt/tg-downloader-ui/forwarder.py", init_script)
 

@@ -20,12 +20,9 @@ classifiers = [
   "Programming Language :: Python :: 3.12",
 ]
 dependencies = [
-  "qrcode>=7.4",
-  "telethon>=1.35",
+  "qrcode==8.2",
+  "telethon==1.44.0",
 ]
-
-[project.optional-dependencies]
-forwarder = ["telethon>=1.35"]
 
 [project.scripts]
 tg-downloader-ui = "tg_downloader_ui.app:main"
