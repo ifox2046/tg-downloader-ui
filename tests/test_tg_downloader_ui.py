@@ -1790,7 +1790,7 @@ class ForwarderStatusApiTests(unittest.TestCase):
                     helper = AuthHttpTests()
                     port = server.server_address[1]
 
-                    status, _, _ = helper.request(port, "POST", "/api/forwarder/restart", {})
+                    status, _, _ = helper.request(port, "POST", "/api/forwarder/restart")
                     self.assertEqual(status, 401)
 
                     auth_headers = helper.login_headers(port)
