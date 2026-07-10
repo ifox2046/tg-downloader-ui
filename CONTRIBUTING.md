@@ -24,3 +24,7 @@ ignored by Git, and must never be committed or attached to an issue.
 
 Do not commit real Telegram credentials, session files, private bot names,
 private channel IDs, or machine-specific paths.
+
+Keep uninitialized test instances bound or published to loopback. Complete the
+first-run administrator setup before testing an explicit LAN bind or publish
+address.

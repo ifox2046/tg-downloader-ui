@@ -40,10 +40,18 @@ http://localhost:9910
 
 On first launch, the setup page requires:
 
-- the one-time setup token from `TGDL_SETUP_TOKEN` or the startup logs
 - admin username
 - admin password with at least eight characters (no composition rules)
 - absolute download directory, for Docker usually `/downloads`
+
+The first browser to complete this form creates the administrator account.
+Complete the first-run administrator setup before changing the bind or publish
+address from loopback to a LAN address.
+
+For unattended provisioning, set both `TGDL_AUTH_USER` and
+`TGDL_AUTH_PASSWORD` before the first start. Leave `TGDL_AUTH_PASSWORD` unset
+to use the browser setup flow, and keep real passwords in an untracked local
+environment file.
 
 Persistent Docker paths:
 
@@ -133,7 +141,8 @@ Configuration priority:
 | `TGDL_TDL_PROXY` | no | `TGDL_PROXY` | Proxy for `tdl` download/export commands. Empty disables proxy. |
 | `TGDL_TELEGRAM_PROXY` | no | `TGDL_PROXY` | Proxy for forwarder/Telethon. Empty disables proxy. |
 | `TGDL_SESSION_MAX_AGE` | no | `604800` | Login cookie lifetime in seconds. |
-| `TGDL_SETUP_TOKEN` | first setup | generated at startup | One-time token required to create the first administrator. |
+| `TGDL_AUTH_USER` | unattended setup | `admin` | Administrator username used when `TGDL_AUTH_PASSWORD` is set before first start. |
+| `TGDL_AUTH_PASSWORD` | unattended setup | empty | Optional administrator password for first-start provisioning; otherwise use the browser setup page. Keep this value out of Git. |
 | `TGDL_COOKIE_SECURE` | no | `0` | Set to `1` when the browser reaches the service through HTTPS. |
 | `TGDL_PUBLISH_HOST` | Docker | `127.0.0.1` | Host address used by Docker Compose port publication. |
 | `TGDL_PUBLISH_PORT` | Docker | `9910` | Host port used by Docker Compose. |
