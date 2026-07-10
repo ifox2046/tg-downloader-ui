@@ -3,6 +3,7 @@ set -eu
 
 if [ "$(id -u)" = "0" ]; then
   mkdir -p /config /downloads /tdl
+  chmod 700 /config /downloads /tdl
   chown -R tgdl:tgdl /config /tdl
   chown tgdl:tgdl /downloads
   exec setpriv --reuid=tgdl --regid=tgdl --init-groups "$0" "$@"

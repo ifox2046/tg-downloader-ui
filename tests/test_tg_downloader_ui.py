@@ -1874,6 +1874,7 @@ class DockerComposeTests(unittest.TestCase):
         entrypoint = Path("docker/entrypoint.sh").read_text(encoding="utf-8")
         restart = Path("docker/restart-forwarder.sh").read_text(encoding="utf-8")
 
+        self.assertIn("chmod 700 /config /downloads /tdl", entrypoint)
         self.assertIn("tg-downloader-forwarder-supervisor", entrypoint)
         self.assertIn("${TGDL_FORWARDER_ENABLED:-0}", entrypoint)
         self.assertIn('[ "${TGDL_FORWARDER_ENABLED:-0}" = "1" ]', entrypoint)
