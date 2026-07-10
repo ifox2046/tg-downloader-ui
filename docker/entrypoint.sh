@@ -1,9 +1,16 @@
 #!/bin/sh
 set -eu
 
+if [ "$(id -u)" = "0" ]; then
+  mkdir -p /config /downloads /tdl
+  chown -R tgdl:tgdl /config /tdl
+  chown tgdl:tgdl /downloads
+  exec setpriv --reuid=tgdl --regid=tgdl --init-groups "$0" "$@"
+fi
+
 supervisor_pid=""
 
-if [ "${TGDL_FORWARDER_ENABLED:-1}" != "0" ]; then
+if [ "${TGDL_FORWARDER_ENABLED:-0}" != "0" ]; then
   tg-downloader-forwarder-supervisor &
   supervisor_pid="$!"
   echo "$supervisor_pid" > "${TGDL_FORWARDER_SUPERVISOR_PID_FILE:-/tmp/tg-downloader-forwarder-supervisor.pid}"

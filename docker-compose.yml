@@ -5,7 +5,7 @@ services:
       args:
         TDL_VERSION: "0.20.3"
     ports:
-      - "9910:9910"
+      - "${TGDL_PUBLISH_HOST:-127.0.0.1}:${TGDL_PUBLISH_PORT:-9910}:9910"
     environment:
       TGDL_STATE_DIR: /config
       TGDL_DOWNLOAD_DIR: /downloads
@@ -14,6 +14,7 @@ services:
       TGDL_PROXY: ""
       TGDL_TDL_PROXY: ""
       TGDL_TELEGRAM_PROXY: ""
+      TGDL_FORWARDER_ENABLED: "${TGDL_FORWARDER_ENABLED:-0}"
       TGDL_FORWARDER_RESTART_CMD: /usr/local/bin/tg-downloader-forwarder-restart
     volumes:
       - ./data/config:/config

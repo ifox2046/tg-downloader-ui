@@ -1825,6 +1825,18 @@ class ForwarderStatusApiTests(unittest.TestCase):
 
 
 class DockerComposeTests(unittest.TestCase):
+    def test_compose_publishes_only_to_loopback_and_disables_forwarder(self):
+        compose = Path("docker-compose.yml").read_text(encoding="utf-8")
+
+        self.assertIn(
+            "${TGDL_PUBLISH_HOST:-127.0.0.1}:${TGDL_PUBLISH_PORT:-9910}:9910",
+            compose,
+        )
+        self.assertIn(
+            'TGDL_FORWARDER_ENABLED: "${TGDL_FORWARDER_ENABLED:-0}"',
+            compose,
+        )
+
     def test_compose_runs_forwarder_inside_web_container(self):
         compose = Path("docker-compose.yml").read_text(encoding="utf-8")
 
@@ -1844,12 +1856,36 @@ class DockerComposeTests(unittest.TestCase):
         self.assertIn("COPY docker/restart-forwarder.sh /usr/local/bin/tg-downloader-forwarder-restart", dockerfile)
         self.assertIn('ENTRYPOINT ["tg-downloader-ui-entrypoint"]', dockerfile)
 
+    def test_dockerfile_verifies_tdl_and_drops_runtime_privileges(self):
+        dockerfile = Path("Dockerfile").read_text(encoding="utf-8")
+
+        self.assertIn(
+            "f69fe06c17f74c30a3b894b5be05c57a1b082f56b346c994025a2301b269a718",
+            dockerfile,
+        )
+        self.assertIn("sha256sum -c -", dockerfile)
+        self.assertIn("useradd", dockerfile)
+        self.assertIn("setpriv", dockerfile)
+
+    def test_docker_context_excludes_local_secrets(self):
+        ignored = Path(".dockerignore").read_text(encoding="utf-8")
+
+        for value in [
+            ".env",
+            ".env.release-safety.local",
+            ".agents",
+            ".codex",
+            ".claude",
+            "dist/",
+        ]:
+            self.assertIn(value, ignored)
+
     def test_docker_entrypoint_starts_forwarder_supervisor(self):
         entrypoint = Path("docker/entrypoint.sh").read_text(encoding="utf-8")
         restart = Path("docker/restart-forwarder.sh").read_text(encoding="utf-8")
 
         self.assertIn("tg-downloader-forwarder-supervisor", entrypoint)
-        self.assertIn("TGDL_FORWARDER_ENABLED", entrypoint)
+        self.assertIn("${TGDL_FORWARDER_ENABLED:-0}", entrypoint)
         self.assertIn("TGDL_FORWARDER_PID_FILE", restart)
         self.assertIn("kill \"$forwarder_pid\"", restart)
 
