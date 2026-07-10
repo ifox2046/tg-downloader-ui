@@ -7,6 +7,11 @@ Lightweight web UI and automation layer for Telegram downloads with
 job history, path/source settings, and an optional Telegram forwarder. It is
 not affiliated with Telegram and is not an official `tdl` project.
 
+This is a local-first service. The Python application binds to loopback by
+default, and Docker Compose publishes only on `127.0.0.1` by default. Do not
+expose the service directly to the public Internet; use a trusted HTTPS reverse
+proxy or VPN when remote access is required.
+
 ## Modes
 
 - Basic download mode: install and log in to `tdl`, configure a download
@@ -35,8 +40,9 @@ http://localhost:9910
 
 On first launch, the setup page requires:
 
+- the one-time setup token from `TGDL_SETUP_TOKEN` or the startup logs
 - admin username
-- admin password
+- admin password with at least eight characters (no composition rules)
 - absolute download directory, for Docker usually `/downloads`
 
 Persistent Docker paths:
@@ -45,7 +51,13 @@ Persistent Docker paths:
 - `./data/tdl` -> `/tdl`
 - `./downloads` -> `/downloads`
 
-The Docker container starts the Web UI and the optional forwarder together.
+These host directories must be writable by UID/GID `1000`. The container runs
+the application as that non-root user after preparing the mount roots.
+
+The `0.1.0` Docker image targets Linux x86-64 and verifies the checksum of the
+bundled unmodified `tdl` `0.20.3` binary during the build. The container always
+starts the Web UI; set `TGDL_FORWARDER_ENABLED=1` to also start the optional
+forwarder.
 The forwarder restart button restarts the in-container forwarder process; it
 does not need the Docker socket.
 
@@ -93,6 +105,10 @@ that same `/config/config.json` and `/tdl/session.txt` state.
 Do not publish `api_hash`, session strings, or channel IDs from private
 accounts.
 
+Treat the entire state directory, Telegram sessions, proxy credentials, job
+logs, and downloader logs as sensitive data. Keep them out of commits, issue
+attachments, and support logs.
+
 ## Configuration
 
 Configuration priority:
@@ -106,7 +122,7 @@ Configuration priority:
 
 | Name | Required | Default | Description |
 | --- | --- | --- | --- |
-| `TGDL_HOST` | no | `0.0.0.0` | Web UI bind host. |
+| `TGDL_HOST` | no | `127.0.0.1` | Web UI bind host. Docker overrides the container bind address while Compose limits publication to loopback. |
 | `TGDL_PORT` | no | `9910` | Web UI port. |
 | `TGDL_STATE_DIR` | no | user state dir | Config, database, logs, forwarder status. |
 | `TGDL_DOWNLOAD_DIR` | setup | user downloads dir | Default download directory. |
@@ -117,6 +133,11 @@ Configuration priority:
 | `TGDL_TDL_PROXY` | no | `TGDL_PROXY` | Proxy for `tdl` download/export commands. Empty disables proxy. |
 | `TGDL_TELEGRAM_PROXY` | no | `TGDL_PROXY` | Proxy for forwarder/Telethon. Empty disables proxy. |
 | `TGDL_SESSION_MAX_AGE` | no | `604800` | Login cookie lifetime in seconds. |
+| `TGDL_SETUP_TOKEN` | first setup | generated at startup | One-time token required to create the first administrator. |
+| `TGDL_COOKIE_SECURE` | no | `0` | Set to `1` when the browser reaches the service through HTTPS. |
+| `TGDL_PUBLISH_HOST` | Docker | `127.0.0.1` | Host address used by Docker Compose port publication. |
+| `TGDL_PUBLISH_PORT` | Docker | `9910` | Host port used by Docker Compose. |
+| `TGDL_FORWARDER_ENABLED` | no | `0` | Set to `1` to enable the optional forwarder in Docker or OpenWRT. |
 | `TGDL_API_ID` | forwarder | empty | Telegram API ID from `my.telegram.org`. |
 | `TGDL_API_HASH` | forwarder | empty | Telegram API hash from `my.telegram.org`. |
 | `TGDL_SESSION_FILE` | forwarder | state-local session path | Telethon string session file. |
@@ -137,13 +158,13 @@ http://127.0.0.1:8080
 
 ```sh
 python -m pip install .
-tg-downloader-ui --host 0.0.0.0 --port 9910
+tg-downloader-ui
 ```
 
-Forwarder dependencies are optional:
+The package includes the Telethon and qrcode dependencies required for
+Telegram authorization. The forwarder remains opt-in:
 
 ```sh
-python -m pip install ".[forwarder]"
 tg-downloader-forwarder
 ```
 
@@ -162,17 +183,11 @@ opkg install tg-downloader-ui_0.1.0_all.ipk
 ```
 
 The package installs the web app, procd init script, environment template, and
-LuCI menu link. It does not bundle `tdl`; install the correct upstream `tdl`
-binary for your router separately and keep it at `/usr/bin/tdl` or set
-`TGDL_TDL_BIN`.
-
-The package depends on `python3-pip` and its post-install script makes a
-best-effort install of `telethon>=1.35` and `qrcode>=7.4`. If the router is
-offline during install, run this after network is available:
-
-```sh
-python3 -m pip install --no-cache-dir 'telethon>=1.35' 'qrcode>=7.4'
-```
+LuCI menu link. Telethon, qrcode, rsa, pyasn1, and pyaes are verified and
+prebundled in the IPK, so installing the package on the router does not run
+`pip` and can be completed offline. The IPK does not bundle `tdl`; install the
+correct upstream `tdl` binary for your router separately and keep it at
+`/usr/bin/tdl` or set `TGDL_TDL_BIN`.
 
 For the full manual testing checklist, see [docs/TESTING.md](docs/TESTING.md).
 For an OpenWRT-specific real-device checklist, see
@@ -190,6 +205,9 @@ Edit `/etc/tg-downloader-ui.env`, then restart:
 ```sh
 /etc/init.d/tg-downloader-ui restart
 ```
+
+Set `TGDL_FORWARDER_ENABLED=1` in that file only when the optional forwarder is
+configured and should run.
 
 ## Development
 
