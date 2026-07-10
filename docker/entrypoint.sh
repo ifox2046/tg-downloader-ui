@@ -10,10 +10,12 @@ fi
 
 supervisor_pid=""
 
-if [ "${TGDL_FORWARDER_ENABLED:-0}" != "0" ]; then
+if [ "${TGDL_FORWARDER_ENABLED:-0}" = "1" ]; then
   tg-downloader-forwarder-supervisor &
   supervisor_pid="$!"
   echo "$supervisor_pid" > "${TGDL_FORWARDER_SUPERVISOR_PID_FILE:-/tmp/tg-downloader-forwarder-supervisor.pid}"
+else
+  unset TGDL_FORWARDER_RESTART_CMD
 fi
 
 "$@" &

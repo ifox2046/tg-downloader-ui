@@ -1,6 +1,11 @@
 #!/bin/sh
 set -eu
 
+[ "${TGDL_FORWARDER_ENABLED:-0}" = "1" ] || {
+  echo "forwarder is disabled" >&2
+  exit 1
+}
+
 pid_file="${TGDL_FORWARDER_PID_FILE:-/tmp/tg-downloader-forwarder.pid}"
 supervisor_pid_file="${TGDL_FORWARDER_SUPERVISOR_PID_FILE:-/tmp/tg-downloader-forwarder-supervisor.pid}"
 

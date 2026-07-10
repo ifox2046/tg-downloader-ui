@@ -1888,6 +1888,9 @@ class DockerComposeTests(unittest.TestCase):
 
         self.assertIn("tg-downloader-forwarder-supervisor", entrypoint)
         self.assertIn("${TGDL_FORWARDER_ENABLED:-0}", entrypoint)
+        self.assertIn('[ "${TGDL_FORWARDER_ENABLED:-0}" = "1" ]', entrypoint)
+        self.assertIn("unset TGDL_FORWARDER_RESTART_CMD", entrypoint)
+        self.assertIn('[ "${TGDL_FORWARDER_ENABLED:-0}" = "1" ]', restart)
         self.assertIn("TGDL_FORWARDER_PID_FILE", restart)
         self.assertIn("kill \"$forwarder_pid\"", restart)
 
