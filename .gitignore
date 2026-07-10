@@ -22,6 +22,7 @@ tg_session.txt
 .codex/
 .claude/
 .agents/
+.worktrees/
 
 # Windows accidental redirect artifact
 NUL
