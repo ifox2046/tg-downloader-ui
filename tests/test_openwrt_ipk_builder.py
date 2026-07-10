@@ -246,11 +246,21 @@ class OpenWrtIpkBuilderTests(unittest.TestCase):
             1,
         )
         self.assertEqual(
-            init_script.count("PYTHONPATH=/opt/tg-downloader-ui/vendor"), 2
+            init_script.count('PYTHONPATH="/opt/tg-downloader-ui/vendor'), 1
         )
+        self.assertEqual(init_script.count("procd_set_param env"), 1)
+        self.assertEqual(init_script.count("\tset_runtime_env\n"), 2)
+        self.assertIn('TGDL_STATE_DIR="${TGDL_STATE_DIR:-/etc/tg-downloader-ui}"', init_script)
+        self.assertIn('TGDL_API_HASH="${TGDL_API_HASH:-}"', init_script)
         self.assertIn('${TGDL_FORWARDER_ENABLED:-0}" = "1"', init_script)
-        self.assertIn("exec /usr/bin/python3 /opt/tg-downloader-ui/app.py", init_script)
-        self.assertIn("exec /usr/bin/python3 /opt/tg-downloader-ui/forwarder.py", init_script)
+        self.assertIn(
+            "procd_set_param command /usr/bin/python3 /opt/tg-downloader-ui/app.py",
+            init_script,
+        )
+        self.assertIn(
+            "procd_set_param command /usr/bin/python3 /opt/tg-downloader-ui/forwarder.py",
+            init_script,
+        )
 
 
 if __name__ == "__main__":

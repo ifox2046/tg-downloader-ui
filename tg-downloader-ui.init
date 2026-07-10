@@ -4,11 +4,43 @@ START=95
 STOP=10
 USE_PROCD=1
 
+set_runtime_env() {
+	procd_set_param env \
+		PYTHONPATH="/opt/tg-downloader-ui/vendor${PYTHONPATH:+:$PYTHONPATH}" \
+		TGDL_HOST="${TGDL_HOST:-0.0.0.0}" \
+		TGDL_PORT="${TGDL_PORT:-9910}" \
+		TGDL_STATE_DIR="${TGDL_STATE_DIR:-/etc/tg-downloader-ui}" \
+		TGDL_DOWNLOAD_DIR="${TGDL_DOWNLOAD_DIR:-/mnt/telegram-downloads}" \
+		TGDL_TDL_BIN="${TGDL_TDL_BIN:-/usr/bin/tdl}" \
+		TGDL_TDL_STORAGE="${TGDL_TDL_STORAGE:-type=bolt,path=/etc/tg-downloader-ui/tdl/data}" \
+		TGDL_TDL_LOG="${TGDL_TDL_LOG:-/etc/tg-downloader-ui/tdl.log}" \
+		TGDL_PROXY="${TGDL_PROXY:-}" \
+		TGDL_TDL_PROXY="${TGDL_TDL_PROXY:-}" \
+		TGDL_TELEGRAM_PROXY="${TGDL_TELEGRAM_PROXY:-}" \
+		TGDL_SESSION_MAX_AGE="${TGDL_SESSION_MAX_AGE:-604800}" \
+		TGDL_SETUP_TOKEN="${TGDL_SETUP_TOKEN:-}" \
+		TGDL_COOKIE_SECURE="${TGDL_COOKIE_SECURE:-0}" \
+		TGDL_AUTH_USER="${TGDL_AUTH_USER:-admin}" \
+		TGDL_AUTH_PASSWORD="${TGDL_AUTH_PASSWORD:-}" \
+		TGDL_TDL_DIR="${TGDL_TDL_DIR:-/etc/tg-downloader-ui/tdl}" \
+		TGDL_CHAT="${TGDL_CHAT:-}" \
+		TGDL_FORWARDER_ENABLED="${TGDL_FORWARDER_ENABLED:-0}" \
+		TGDL_API_ID="${TGDL_API_ID:-}" \
+		TGDL_API_HASH="${TGDL_API_HASH:-}" \
+		TGDL_SESSION_FILE="${TGDL_SESSION_FILE:-/etc/tg-downloader-ui/session.txt}" \
+		TGDL_FORWARD_SOURCE="${TGDL_FORWARD_SOURCE:-}" \
+		TGDL_FORWARD_CHANNEL_ID="${TGDL_FORWARD_CHANNEL_ID:-}" \
+		TGDL_FORWARDER_LOG="${TGDL_FORWARDER_LOG:-/etc/tg-downloader-ui/forwarder.log}" \
+		TGDL_FORWARDER_STATUS="${TGDL_FORWARDER_STATUS:-/etc/tg-downloader-ui/forwarder_status.json}" \
+		TGDL_FORWARDER_RESTART_CMD="${TGDL_FORWARDER_RESTART_CMD:-}"
+}
+
 start_service() {
 	set -a; [ -f /etc/tg-downloader-ui.env ] && . /etc/tg-downloader-ui.env; set +a
 
 	procd_open_instance
-	procd_set_param command /bin/sh -c 'export PYTHONPATH=/opt/tg-downloader-ui/vendor${PYTHONPATH:+:$PYTHONPATH}; exec /usr/bin/python3 /opt/tg-downloader-ui/app.py --host 0.0.0.0 --port 9910'
+	set_runtime_env
+	procd_set_param command /usr/bin/python3 /opt/tg-downloader-ui/app.py
 	procd_set_param respawn 3600 5 5
 	procd_set_param stdout 1
 	procd_set_param stderr 1
@@ -16,7 +48,8 @@ start_service() {
 
 	if [ "${TGDL_FORWARDER_ENABLED:-0}" = "1" ]; then
 		procd_open_instance forwarder
-		procd_set_param command /bin/sh -c 'export PYTHONPATH=/opt/tg-downloader-ui/vendor${PYTHONPATH:+:$PYTHONPATH}; exec /usr/bin/python3 /opt/tg-downloader-ui/forwarder.py'
+		set_runtime_env
+		procd_set_param command /usr/bin/python3 /opt/tg-downloader-ui/forwarder.py
 		procd_set_param respawn 3600 5 5
 		procd_set_param stdout 1
 		procd_set_param stderr 1
