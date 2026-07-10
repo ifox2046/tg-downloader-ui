@@ -106,6 +106,29 @@ def utcish_now() -> str:
     return dt.datetime.now().isoformat(timespec="seconds")
 
 
+def ensure_private_dir(path: Path) -> Path:
+    path.mkdir(parents=True, exist_ok=True)
+    with contextlib.suppress(OSError):
+        path.chmod(0o700)
+    return path
+
+
+def ensure_private_file(path: Path) -> Path:
+    with contextlib.suppress(OSError):
+        path.chmod(0o600)
+    return path
+
+
+def redact_command_args(args: list[str]) -> list[str]:
+    redacted = list(args)
+    for index, value in enumerate(redacted):
+        if index and redacted[index - 1] == "--proxy":
+            redacted[index] = "<redacted>"
+        elif value.startswith("--proxy="):
+            redacted[index] = "--proxy=<redacted>"
+    return redacted
+
+
 def strip_ansi(value: str) -> str:
     return ANSI_RE.sub("", value)
 
@@ -647,7 +670,7 @@ class ConfigStore:
         self.data: dict[str, Any] = {}
 
     def init(self) -> None:
-        self.state_dir.mkdir(parents=True, exist_ok=True)
+        ensure_private_dir(self.state_dir)
         with self.lock:
             if self.path.exists():
                 self.data = json.loads(self.path.read_text(encoding="utf-8") or "{}")
@@ -707,13 +730,15 @@ class ConfigStore:
                 self.save()
 
     def save(self) -> None:
-        self.state_dir.mkdir(parents=True, exist_ok=True)
+        ensure_private_dir(self.state_dir)
         tmp_path = self.path.with_suffix(".json.tmp")
         tmp_path.write_text(
             json.dumps(self.data, ensure_ascii=False, indent=2, sort_keys=True),
             encoding="utf-8",
         )
+        ensure_private_file(tmp_path)
         tmp_path.replace(self.path)
+        ensure_private_file(self.path)
 
     def get_download_dir(self) -> Path:
         with self.lock:
@@ -966,9 +991,9 @@ class JobStore:
 
     def init(self) -> None:
         self.config_store.init()
-        self.state_dir.mkdir(parents=True, exist_ok=True)
-        self.logs_dir.mkdir(parents=True, exist_ok=True)
-        self.exports_dir.mkdir(parents=True, exist_ok=True)
+        ensure_private_dir(self.state_dir)
+        ensure_private_dir(self.logs_dir)
+        ensure_private_dir(self.exports_dir)
         self.config_store.get_download_dir().mkdir(parents=True, exist_ok=True)
         now = utcish_now()
         with contextlib.closing(self.connect()) as db:
@@ -1050,6 +1075,7 @@ class JobStore:
 
     def connect(self) -> sqlite3.Connection:
         db = sqlite3.connect(self.db_path)
+        ensure_private_file(self.db_path)
         db.row_factory = sqlite3.Row
         return db
 
@@ -1259,9 +1285,10 @@ class JobStore:
         if not job:
             return
         path = Path(job["log_path"])
-        path.parent.mkdir(parents=True, exist_ok=True)
+        ensure_private_dir(path.parent)
         with path.open("a", encoding="utf-8", errors="replace") as handle:
             handle.write(text)
+        ensure_private_file(path)
 
     def tail_log(self, job_id: int, limit: int = 200) -> str:
         job = self.get_job(job_id)
@@ -1314,6 +1341,7 @@ class DownloadWorker(threading.Thread):
         resume_requested = bool(int(job.get("resume_requested") or 0) and export_path.exists())
         if not resume_requested:
             log_path.write_text("", encoding="utf-8")
+            ensure_private_file(log_path)
 
         action = "Resume" if resume_requested else "Start"
         self.store.append_log(job_id, f"{action} message {message_id} from {source_label}\n")
@@ -1462,7 +1490,7 @@ class DownloadWorker(threading.Thread):
             raise JobCanceled("canceled by user")
 
     def run_command(self, job_id: int, cmd: list[str], status: str) -> int:
-        self.store.append_log(job_id, "$ " + " ".join(cmd) + "\n")
+        self.store.append_log(job_id, "$ " + " ".join(redact_command_args(cmd)) + "\n")
         started = time.time()
         last_update = 0.0
         last_progress = 0.0
@@ -2214,10 +2242,9 @@ def is_telegram_password_error(exc: BaseException) -> bool:
 def save_string_session(session_file: Path, session_text: str) -> None:
     if not session_text:
         raise RuntimeError("Telegram authorization did not produce a session")
-    session_file.parent.mkdir(parents=True, exist_ok=True)
+    ensure_private_dir(session_file.parent)
     session_file.write_text(session_text.strip() + "\n", encoding="utf-8")
-    with contextlib.suppress(OSError):
-        session_file.chmod(0o600)
+    ensure_private_file(session_file)
 
 
 def asyncio_run(coro: Any) -> Any:
@@ -2256,7 +2283,7 @@ async def _telegram_send_login_code_async(
         sent = await client.send_code_request(phone_text)
     finally:
         await client.disconnect()
-    state_path.parent.mkdir(parents=True, exist_ok=True)
+    ensure_private_dir(state_path.parent)
     state_path.write_text(
         json.dumps(
             {
@@ -2269,6 +2296,7 @@ async def _telegram_send_login_code_async(
         ),
         encoding="utf-8",
     )
+    ensure_private_file(state_path)
     return {"ok": True, "phone": phone_text}
 
 
@@ -2590,7 +2618,7 @@ def restart_forwarder(command: str | list[str] | None = None) -> dict[str, Any]:
         "returncode": proc.returncode,
         "stdout": proc.stdout,
         "stderr": proc.stderr,
-        "args": args,
+        "args": redact_command_args(args),
     }
 
 

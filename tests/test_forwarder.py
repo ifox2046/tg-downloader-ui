@@ -1,4 +1,6 @@
 import json
+import os
+import stat
 import tempfile
 import unittest
 from pathlib import Path
@@ -8,6 +10,20 @@ from tg_downloader_ui import forwarder
 
 
 class ForwarderFormattingTests(unittest.TestCase):
+    @unittest.skipIf(os.name == "nt", "POSIX mode assertion")
+    def test_forwarder_log_and_status_files_are_private(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            log_path = root / "forwarder.log"
+            status_path = root / "forwarder_status.json"
+
+            forwarder.log_line("hello", log_path=log_path)
+            forwarder.write_status_file(status_path, {"state": "running"})
+
+            self.assertEqual(stat.S_IMODE(root.stat().st_mode), 0o700)
+            self.assertEqual(stat.S_IMODE(log_path.stat().st_mode), 0o600)
+            self.assertEqual(stat.S_IMODE(status_path.stat().st_mode), 0o600)
+
     def test_format_forward_message_includes_file_size_and_message_id(self):
         message = SimpleNamespace(
             id=23311,

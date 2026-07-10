@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import datetime as dt
 import json
 import os
@@ -37,6 +38,19 @@ CHANNEL_ID = os.environ.get("TGDL_FORWARD_CHANNEL_ID", "")
 
 def utcish_now() -> str:
     return dt.datetime.now().isoformat(timespec="seconds")
+
+
+def ensure_private_dir(path: Path) -> Path:
+    path.mkdir(parents=True, exist_ok=True)
+    with contextlib.suppress(OSError):
+        path.chmod(0o700)
+    return path
+
+
+def ensure_private_file(path: Path) -> Path:
+    with contextlib.suppress(OSError):
+        path.chmod(0o600)
+    return path
 
 
 def human_size(size: int) -> str:
@@ -224,14 +238,23 @@ def format_forward_message(message: Any, source_label: str = "") -> str:
 
 
 def log_line(text: str, log_path: Path = LOG_PATH) -> None:
-    log_path.parent.mkdir(parents=True, exist_ok=True)
+    ensure_private_dir(log_path.parent)
     with log_path.open("a", encoding="utf-8", errors="replace") as handle:
         handle.write(f"{utcish_now()} {text}\n")
+    ensure_private_file(log_path)
+
+
+def write_status_file(path: Path, payload: dict[str, Any]) -> None:
+    ensure_private_dir(path.parent)
+    tmp_path = path.with_suffix(".json.tmp")
+    tmp_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    ensure_private_file(tmp_path)
+    tmp_path.replace(path)
+    ensure_private_file(path)
 
 
 def write_status(**fields: Any) -> None:
     sources = load_forward_sources()
-    STATUS_PATH.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         "updated_at": utcish_now(),
         "updated_at_epoch": time.time(),
@@ -248,9 +271,7 @@ def write_status(**fields: Any) -> None:
         "channel_id": CHANNEL_ID,
         **fields,
     }
-    tmp_path = STATUS_PATH.with_suffix(".json.tmp")
-    tmp_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    tmp_path.replace(STATUS_PATH)
+    write_status_file(STATUS_PATH, payload)
 
 
 def read_status(

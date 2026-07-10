@@ -3,6 +3,7 @@ import http.client
 import json
 import os
 import signal
+import stat
 import sys
 import tempfile
 import threading
@@ -135,6 +136,42 @@ class CommandConstructionTests(unittest.TestCase):
 
         self.assertEqual(proc.signals, [signal.SIGINT])
         self.assertFalse(proc.killed)
+
+
+class SecurityHelperTests(unittest.TestCase):
+    def test_redact_command_args_hides_proxy_credentials(self):
+        args = app.redact_command_args(
+            [
+                "tdl",
+                "--proxy",
+                "socks5://user:password@127.0.0.1:1080",
+                "download",
+            ]
+        )
+
+        self.assertEqual(args, ["tdl", "--proxy", "<redacted>", "download"])
+
+    @unittest.skipIf(os.name == "nt", "POSIX mode assertion")
+    def test_config_database_and_job_log_are_private(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            config = app.ConfigStore(
+                root / "state",
+                default_download_dir=root / "downloads",
+                default_password="test-password",
+            )
+            config.init()
+            store = JobStore(root / "state", config)
+            store.init()
+            job = store.create_job(23311)
+            store.append_log(job["id"], "hello\n")
+
+            self.assertEqual(stat.S_IMODE(config.state_dir.stat().st_mode), 0o700)
+            self.assertEqual(stat.S_IMODE(config.path.stat().st_mode), 0o600)
+            self.assertEqual(stat.S_IMODE(store.db_path.stat().st_mode), 0o600)
+            self.assertEqual(
+                stat.S_IMODE(Path(job["log_path"]).stat().st_mode), 0o600
+            )
 
 
 class MediaPlanTests(unittest.TestCase):
@@ -1512,11 +1549,14 @@ class ForwarderStatusApiTests(unittest.TestCase):
                 sys.executable,
                 "-c",
                 "print('forwarder restarted')",
+                "--proxy",
+                "socks5://user:password@127.0.0.1:1080",
             ]
         )
 
         self.assertEqual(result["returncode"], 0)
         self.assertEqual(result["stdout"].strip(), "forwarder restarted")
+        self.assertEqual(result["args"][-2:], ["--proxy", "<redacted>"])
 
     def test_restart_forwarder_requires_configured_or_openwrt_command(self):
         with self.assertRaisesRegex(RuntimeError, "restart command is not configured"):
