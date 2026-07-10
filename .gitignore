@@ -5,6 +5,7 @@ __pycache__/
 htmlcov/
 
 .env
+.env.release-safety.local
 *.db
 *.sqlite
 *.log
