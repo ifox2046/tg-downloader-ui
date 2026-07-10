@@ -280,6 +280,19 @@ class MediaPlanTests(unittest.TestCase):
 
 
 class ConfigAuthTests(unittest.TestCase):
+    def test_new_passwords_require_eight_characters(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            config = app.ConfigStore(
+                root / "state",
+                default_download_dir=root / "downloads",
+                default_password="",
+            )
+            config.init()
+
+            with self.assertRaisesRegex(ValueError, "at least 8"):
+                config.initialize("owner", "short", root / "downloads")
+
     def test_missing_auth_requires_initial_setup_without_default_password(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -438,6 +451,13 @@ class ConfigAuthTests(unittest.TestCase):
 
 
 class IndexTemplateTests(unittest.TestCase):
+    def test_setup_form_collects_one_time_token(self):
+        self.assertIn('id="setupToken"', app.SETUP_HTML)
+        self.assertIn("X-TGDL-Setup-Token", app.SETUP_HTML)
+
+    def test_default_host_is_loopback(self):
+        self.assertEqual(app.DEFAULT_HOST, "127.0.0.1")
+
     def test_index_has_left_navigation_sources_page_and_download_source_select(self):
         html = app.INDEX_HTML
 
@@ -1028,7 +1048,13 @@ class AuthHttpTests(unittest.TestCase):
             store = JobStore(root / "state", config)
             store.init()
             auth = app.AuthManager(config, session_max_age_seconds=604800)
-            server = app.DownloadServer(("127.0.0.1", 0), app.RequestHandler, store, config, auth)
+            server = app.DownloadServer(
+                ("127.0.0.1", 0),
+                app.RequestHandler,
+                store,
+                config,
+                auth,
+            )
             thread = threading.Thread(target=server.serve_forever, daemon=True)
             thread.start()
             try:
@@ -1089,7 +1115,13 @@ class AuthHttpTests(unittest.TestCase):
             store.init()
             job = store.create_job(23311)
             auth = app.AuthManager(config, session_max_age_seconds=604800)
-            server = app.DownloadServer(("127.0.0.1", 0), app.RequestHandler, store, config, auth)
+            server = app.DownloadServer(
+                ("127.0.0.1", 0),
+                app.RequestHandler,
+                store,
+                config,
+                auth,
+            )
             thread = threading.Thread(target=server.serve_forever, daemon=True)
             thread.start()
             try:
@@ -1150,7 +1182,14 @@ class AuthHttpTests(unittest.TestCase):
             store = JobStore(root / "state", config)
             store.init()
             auth = app.AuthManager(config, session_max_age_seconds=604800)
-            server = app.DownloadServer(("127.0.0.1", 0), app.RequestHandler, store, config, auth)
+            server = app.DownloadServer(
+                ("127.0.0.1", 0),
+                app.RequestHandler,
+                store,
+                config,
+                auth,
+                setup_token="one-time-setup-token",
+            )
             thread = threading.Thread(target=server.serve_forever, daemon=True)
             thread.start()
             try:
@@ -1162,11 +1201,29 @@ class AuthHttpTests(unittest.TestCase):
                 self.assertTrue(setup["required"])
                 self.assertEqual(setup["default_download_dir"], str(downloads))
 
+                status, _, _ = self.request(
+                    port,
+                    "POST",
+                    "/api/setup",
+                    {"username": "owner", "password": "strong-password", "download_dir": ""},
+                )
+                self.assertEqual(status, 403)
+
+                status, _, _ = self.request(
+                    port,
+                    "POST",
+                    "/api/setup",
+                    {"username": "owner", "password": "strong-password", "download_dir": ""},
+                    headers={"X-TGDL-Setup-Token": "wrong-token"},
+                )
+                self.assertEqual(status, 403)
+
                 status, _, payload = self.request(
                     port,
                     "POST",
                     "/api/setup",
                     {"username": "owner", "password": "strong-password", "download_dir": ""},
+                    headers={"X-TGDL-Setup-Token": "one-time-setup-token"},
                 )
 
                 self.assertEqual(status, 201)
