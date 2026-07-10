@@ -252,6 +252,7 @@ class OpenWrtIpkBuilderTests(unittest.TestCase):
         self.assertEqual(init_script.count("\tset_runtime_env\n"), 2)
         self.assertIn('TGDL_STATE_DIR="${TGDL_STATE_DIR:-/etc/tg-downloader-ui}"', init_script)
         self.assertIn('TGDL_API_HASH="${TGDL_API_HASH:-}"', init_script)
+        self.assertNotIn("TGDL_SETUP_TOKEN", init_script)
         self.assertIn('${TGDL_FORWARDER_ENABLED:-0}" = "1"', init_script)
         self.assertIn(
             "procd_set_param command /usr/bin/python3 /opt/tg-downloader-ui/app.py",

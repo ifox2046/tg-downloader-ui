@@ -1824,7 +1824,7 @@ class DockerComposeTests(unittest.TestCase):
             'TGDL_FORWARDER_ENABLED: "${TGDL_FORWARDER_ENABLED:-0}"',
             compose,
         )
-        self.assertIn('TGDL_SETUP_TOKEN: "${TGDL_SETUP_TOKEN:-}"', compose)
+        self.assertNotIn("TGDL_SETUP_TOKEN", compose)
         self.assertIn('TGDL_COOKIE_SECURE: "${TGDL_COOKIE_SECURE:-0}"', compose)
 
     def test_compose_runs_forwarder_inside_web_container(self):

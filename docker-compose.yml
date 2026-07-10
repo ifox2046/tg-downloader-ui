@@ -14,7 +14,6 @@ services:
       TGDL_PROXY: ""
       TGDL_TDL_PROXY: ""
       TGDL_TELEGRAM_PROXY: ""
-      TGDL_SETUP_TOKEN: "${TGDL_SETUP_TOKEN:-}"
       TGDL_COOKIE_SECURE: "${TGDL_COOKIE_SECURE:-0}"
       TGDL_FORWARDER_ENABLED: "${TGDL_FORWARDER_ENABLED:-0}"
       TGDL_FORWARDER_RESTART_CMD: /usr/local/bin/tg-downloader-forwarder-restart
