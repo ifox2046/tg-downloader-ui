@@ -671,10 +671,6 @@ def validate_new_password(password: str) -> None:
         )
 
 
-def new_setup_token() -> str:
-    return os.environ.get("TGDL_SETUP_TOKEN", "").strip() or secrets.token_urlsafe(24)
-
-
 class ConfigStore:
     def __init__(
         self,
@@ -2132,7 +2128,6 @@ SETUP_HTML = r"""<!doctype html>
   <main>
     <h2>完成初始设置</h2>
     <div class="setup-grid">
-      <div class="full"><label for="setupToken">一次性设置令牌</label><input id="setupToken" type="password" autocomplete="one-time-code"></div>
       <div><label for="username">管理员账号</label><input id="username" autocomplete="username" value="admin"></div>
       <div><label for="password">管理员密码</label><input id="password" type="password" autocomplete="new-password"></div>
       <div class="full"><label for="downloadDir">下载目录</label><input id="downloadDir" placeholder="/downloads"></div>
@@ -2161,7 +2156,7 @@ document.getElementById('saveBtn').addEventListener('click', async () => {
       forward_channel_id: document.getElementById('channelId').value
     }
   };
-  const res = await fetch('/api/setup', {method:'POST', headers:{'Content-Type':'application/json','X-TGDL-Setup-Token':document.getElementById('setupToken').value}, body:JSON.stringify(payload)});
+  const res = await fetch('/api/setup', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)});
   if (res.ok) location.href = '/login';
   else { message.className = 'message error'; message.textContent = await res.text(); }
 });
@@ -2738,10 +2733,6 @@ class RequestHandler(BaseHTTPRequestHandler):
     def auth(self) -> AuthManager:
         return self.server.auth_manager  # type: ignore[attr-defined]
 
-    @property
-    def setup_token(self) -> str:
-        return self.server.setup_token  # type: ignore[attr-defined]
-
     def log_message(self, fmt: str, *args: Any) -> None:
         sys.stderr.write("%s - %s\n" % (self.address_string(), fmt % args))
 
@@ -2869,13 +2860,6 @@ class RequestHandler(BaseHTTPRequestHandler):
             if not self.config_store.requires_setup():
                 return self.send_error_text(HTTPStatus.BAD_REQUEST, "setup already completed")
             try:
-                supplied_token = self.headers.get("X-TGDL-Setup-Token", "")
-                if not self.setup_token or not hmac.compare_digest(
-                    supplied_token, self.setup_token
-                ):
-                    return self.send_error_text(
-                        HTTPStatus.FORBIDDEN, "invalid setup token"
-                    )
                 payload = self.read_json()
                 self.config_store.initialize(
                     username=str(payload.get("username") or ""),
@@ -3215,14 +3199,12 @@ class DownloadServer(ThreadingHTTPServer):
         store: JobStore,
         config_store: ConfigStore,
         auth_manager: AuthManager,
-        setup_token: str = "",
         cookie_secure: bool = COOKIE_SECURE,
     ):
         super().__init__(address, handler)
         self.store = store
         self.config_store = config_store
         self.auth_manager = auth_manager
-        self.setup_token = setup_token
         self.cookie_secure = cookie_secure
 
 
@@ -3232,9 +3214,6 @@ def run_server(host: str = DEFAULT_HOST, port: int = DEFAULT_PORT) -> None:
     store = JobStore(STATE_DIR, config_store)
     store.init()
     auth_manager = AuthManager(config_store)
-    setup_token = new_setup_token() if config_store.requires_setup() else ""
-    if setup_token:
-        print(f"setup token: {setup_token}", flush=True)
     stop_event = threading.Event()
     worker = DownloadWorker(store, stop_event)
     worker.start()
@@ -3245,7 +3224,6 @@ def run_server(host: str = DEFAULT_HOST, port: int = DEFAULT_PORT) -> None:
         store,
         config_store,
         auth_manager,
-        setup_token=setup_token,
     )
 
     def stop(signum: int, frame: Any) -> None:  # noqa: ARG001

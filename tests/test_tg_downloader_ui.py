@@ -470,9 +470,9 @@ class ConfigAuthTests(unittest.TestCase):
 
 
 class IndexTemplateTests(unittest.TestCase):
-    def test_setup_form_collects_one_time_token(self):
-        self.assertIn('id="setupToken"', app.SETUP_HTML)
-        self.assertIn("X-TGDL-Setup-Token", app.SETUP_HTML)
+    def test_setup_form_does_not_collect_setup_token(self):
+        self.assertNotIn('id="setupToken"', app.SETUP_HTML)
+        self.assertNotIn("X-TGDL-Setup-Token", app.SETUP_HTML)
 
     def test_default_host_is_loopback(self):
         self.assertEqual(app.DEFAULT_HOST, "127.0.0.1")
@@ -1059,7 +1059,6 @@ class AuthHttpTests(unittest.TestCase):
         self,
         root,
         default_password="test-password",
-        setup_token="",
         cookie_secure=False,
     ):
         config = app.ConfigStore(
@@ -1078,7 +1077,6 @@ class AuthHttpTests(unittest.TestCase):
             store,
             config,
             auth,
-            setup_token=setup_token,
             cookie_secure=cookie_secure,
         )
         thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -1354,7 +1352,6 @@ class AuthHttpTests(unittest.TestCase):
                 store,
                 config,
                 auth,
-                setup_token="one-time-setup-token",
             )
             thread = threading.Thread(target=server.serve_forever, daemon=True)
             thread.start()
@@ -1373,27 +1370,18 @@ class AuthHttpTests(unittest.TestCase):
                     "/api/setup",
                     {"username": "owner", "password": "strong-password", "download_dir": ""},
                 )
-                self.assertEqual(status, 403)
+                self.assertEqual(status, 201)
+                self.assertEqual(config.get_download_dir(), downloads)
+                self.assertEqual(config.get_username(), "owner")
 
                 status, _, _ = self.request(
                     port,
                     "POST",
                     "/api/setup",
-                    {"username": "owner", "password": "strong-password", "download_dir": ""},
-                    headers={"X-TGDL-Setup-Token": "wrong-token"},
+                    {"username": "other", "password": "other-password", "download_dir": ""},
                 )
-                self.assertEqual(status, 403)
-
-                status, _, payload = self.request(
-                    port,
-                    "POST",
-                    "/api/setup",
-                    {"username": "owner", "password": "strong-password", "download_dir": ""},
-                    headers={"X-TGDL-Setup-Token": "one-time-setup-token"},
-                )
-
-                self.assertEqual(status, 201)
-                self.assertEqual(config.get_download_dir(), downloads)
+                self.assertEqual(status, 400)
+                self.assertEqual(config.get_username(), "owner")
             finally:
                 server.shutdown()
                 server.server_close()
