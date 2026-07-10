@@ -65,6 +65,13 @@ MIN_PASSWORD_LENGTH = 8
 LOGIN_FAILURE_WINDOW_SECONDS = 5 * 60
 LOGIN_FAILURE_LIMIT = 5
 LOGIN_BLOCK_SECONDS = 15 * 60
+MAX_JSON_BODY_BYTES = 1024 * 1024
+COOKIE_SECURE = os.environ.get("TGDL_COOKIE_SECURE", "").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
 ACTIVE_STATUSES = {"exporting", "downloading", "renaming"}
 CANCEL_EXIT_CODE = 130
 QR_LOGIN_TTL_SECONDS = 120
@@ -986,6 +993,7 @@ class AuthManager:
                 "username": username,
                 "expires_at": expires_at,
                 "session_version": self.config_store.get_session_version(),
+                "csrf_token": secrets.token_urlsafe(24),
             }
         return token
 
@@ -1982,6 +1990,7 @@ INDEX_HTML = r"""<!doctype html>
 
   <script>
     let selectedJob = null;
+    let csrfToken = '';
     let currentDir = '';
     let currentDirParent = '';
     let sources = [];
@@ -1989,9 +1998,9 @@ INDEX_HTML = r"""<!doctype html>
     const pageTitles = {downloads:'下载任务', paths:'路径设置', sources:'资源来源', telegram:'Telegram 授权', password:'密码管理'};
     function statusLabel(status) { const labels = {queued:'排队中', exporting:'导出中', downloading:'下载中', renaming:'重命名', done:'已完成', skipped:'已存在', failed:'失败', canceled:'已暂停', running:'运行中', stale:'已失联', missing:'未启动', unknown:'未知'}; return labels[status] || status; }
     function escapeHtml(value) { return String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[ch])); }
-    async function api(path, options = {}) { const headers = {'Content-Type':'application/json', ...(options.headers || {})}; const res = await fetch(path, {...options, headers}); if (res.status === 401) { location.href = '/login'; throw new Error('需要登录'); } if (!res.ok) { const text = await res.text(); throw new Error(text || res.statusText); } const type = res.headers.get('Content-Type') || ''; return type.includes('application/json') ? res.json() : res.text(); }
+    async function api(path, options = {}) { const method = String(options.method || 'GET').toUpperCase(); const headers = {'Content-Type':'application/json', ...(options.headers || {})}; if (!['GET','HEAD'].includes(method) && csrfToken) { headers['X-CSRF-Token'] = csrfToken; } const res = await fetch(path, {...options, headers}); if (res.status === 401) { location.href = '/login'; throw new Error('需要登录'); } if (!res.ok) { const text = await res.text(); throw new Error(text || res.statusText); } const type = res.headers.get('Content-Type') || ''; return type.includes('application/json') ? res.json() : res.text(); }
     function showPage(name) { const next = pageTitles[name] ? name : 'downloads'; document.querySelectorAll('.page').forEach(page => page.classList.toggle('active', page.id === `page-${next}`)); document.querySelectorAll('.nav-item').forEach(btn => btn.classList.toggle('active', btn.dataset.page === next)); document.getElementById('pageTitle').textContent = pageTitles[next]; if (location.hash !== `#${next}`) { history.replaceState(null, '', `#${next}`); } }
-    async function loadMe() { const data = await api('/api/auth/me'); document.getElementById('userLabel').textContent = data.username; }
+    async function loadMe() { const data = await api('/api/auth/me'); csrfToken = data.csrf_token || ''; document.getElementById('userLabel').textContent = data.username; }
     async function loadConfig() { const data = await api('/api/config'); document.getElementById('downloadDir').value = data.download_dir || ''; }
     async function loadTelegramConfig() { const data = await api('/api/telegram/config'); document.getElementById('telegramApiId').value = data.api_id || ''; document.getElementById('telegramApiHash').value = ''; document.getElementById('telegramApiHash').placeholder = data.api_hash_set ? '已保存，留空保持不变' : '必填'; document.getElementById('telegramSessionFile').value = data.session_file || ''; document.getElementById('telegramProxy').value = data.proxy || ''; document.getElementById('telegramChannelId').value = data.forward_channel_id || ''; document.getElementById('telegramSessionState').textContent = data.session_exists ? 'Session 文件已存在' : 'Session 文件未生成'; }
     async function loadSources() { const data = await api('/api/sources'); sources = data.sources || []; defaultSourceId = data.default_source_id || ''; renderSourceOptions(); renderSources(); }
@@ -2736,6 +2745,19 @@ class RequestHandler(BaseHTTPRequestHandler):
     def log_message(self, fmt: str, *args: Any) -> None:
         sys.stderr.write("%s - %s\n" % (self.address_string(), fmt % args))
 
+    def end_headers(self) -> None:
+        self.send_header(
+            "Content-Security-Policy",
+            "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; "
+            "script-src 'self' 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'; "
+            "form-action 'self'",
+        )
+        self.send_header("X-Frame-Options", "DENY")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Referrer-Policy", "no-referrer")
+        self.send_header("Cache-Control", "no-store")
+        super().end_headers()
+
     def do_GET(self) -> None:  # noqa: N802 - stdlib handler API
         parsed = urllib.parse.urlparse(self.path)
         if parsed.path == "/setup":
@@ -2762,7 +2784,13 @@ class RequestHandler(BaseHTTPRequestHandler):
         if parsed.path == "/":
             return self.send_html(INDEX_HTML)
         if parsed.path == "/api/auth/me":
-            return self.send_json({"username": self.config_store.get_username()})
+            session = self.auth.get_session(self.get_session_token()) or {}
+            return self.send_json(
+                {
+                    "username": self.config_store.get_username(),
+                    "csrf_token": session.get("csrf_token", ""),
+                }
+            )
         if parsed.path == "/api/config":
             return self.send_json({"download_dir": str(self.config_store.get_download_dir())})
         if parsed.path == "/api/telegram/config":
@@ -2806,6 +2834,8 @@ class RequestHandler(BaseHTTPRequestHandler):
         return self.send_error_text(HTTPStatus.NOT_FOUND, "not found")
 
     def do_POST(self) -> None:  # noqa: N802 - stdlib handler API
+        if self.reject_oversized_request():
+            return
         parsed = urllib.parse.urlparse(self.path)
 
         if parsed.path == "/api/auth/login":
@@ -2859,6 +2889,8 @@ class RequestHandler(BaseHTTPRequestHandler):
 
         if not self.authorized():
             return self.require_auth()
+        if not self.require_csrf():
+            return
 
         if parsed.path == "/api/auth/logout":
             self.auth.logout(self.get_session_token())
@@ -3002,8 +3034,12 @@ class RequestHandler(BaseHTTPRequestHandler):
         return self.send_error_text(HTTPStatus.NOT_FOUND, "not found")
 
     def do_PUT(self) -> None:  # noqa: N802 - stdlib handler API
+        if self.reject_oversized_request():
+            return
         if not self.authorized():
             return self.require_auth()
+        if not self.require_csrf():
+            return
         parsed = urllib.parse.urlparse(self.path)
         if parsed.path == "/api/config":
             try:
@@ -3040,6 +3076,8 @@ class RequestHandler(BaseHTTPRequestHandler):
     def do_DELETE(self) -> None:  # noqa: N802 - stdlib handler API
         if not self.authorized():
             return self.require_auth()
+        if not self.require_csrf():
+            return
         parsed = urllib.parse.urlparse(self.path)
         match = re.fullmatch(r"/api/jobs/(\d+)", parsed.path)
         if match:
@@ -3065,7 +3103,34 @@ class RequestHandler(BaseHTTPRequestHandler):
 
     def build_session_cookie(self, token: str, max_age: int | None = None) -> str:
         age = SESSION_MAX_AGE_SECONDS if max_age is None else max_age
-        return f"{SESSION_COOKIE}={token}; HttpOnly; SameSite=Lax; Path=/; Max-Age={age}"
+        secure = "; Secure" if self.server.cookie_secure else ""  # type: ignore[attr-defined]
+        return f"{SESSION_COOKIE}={token}; HttpOnly; SameSite=Lax; Path=/; Max-Age={age}{secure}"
+
+    def require_csrf(self) -> bool:
+        session = self.auth.get_session(self.get_session_token())
+        supplied = self.headers.get("X-CSRF-Token", "")
+        expected = str((session or {}).get("csrf_token") or "")
+        if not expected or not hmac.compare_digest(supplied, expected):
+            self.send_error_text(HTTPStatus.FORBIDDEN, "invalid csrf token")
+            return False
+        return True
+
+    def reject_oversized_request(self) -> bool:
+        raw_length = self.headers.get("Content-Length")
+        if raw_length is None:
+            return False
+        try:
+            length = int(raw_length)
+        except ValueError:
+            self.send_error_text(HTTPStatus.BAD_REQUEST, "invalid content length")
+            return True
+        if length < 0:
+            self.send_error_text(HTTPStatus.BAD_REQUEST, "invalid content length")
+            return True
+        if length > MAX_JSON_BODY_BYTES:
+            self.send_error_text(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, "request body too large")
+            return True
+        return False
 
     def require_auth(self) -> None:
         if not urllib.parse.urlparse(self.path).path.startswith("/api/"):
@@ -3151,12 +3216,14 @@ class DownloadServer(ThreadingHTTPServer):
         config_store: ConfigStore,
         auth_manager: AuthManager,
         setup_token: str = "",
+        cookie_secure: bool = COOKIE_SECURE,
     ):
         super().__init__(address, handler)
         self.store = store
         self.config_store = config_store
         self.auth_manager = auth_manager
         self.setup_token = setup_token
+        self.cookie_secure = cookie_secure
 
 
 def run_server(host: str = DEFAULT_HOST, port: int = DEFAULT_PORT) -> None:

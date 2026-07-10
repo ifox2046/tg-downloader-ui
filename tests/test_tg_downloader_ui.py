@@ -1054,6 +1054,126 @@ class AuthHttpTests(unittest.TestCase):
         conn.close()
         return response.status, headers_out, payload
 
+    @contextlib.contextmanager
+    def running_server(
+        self,
+        root,
+        default_password="test-password",
+        setup_token="",
+        cookie_secure=False,
+    ):
+        config = app.ConfigStore(
+            root / "state",
+            default_download_dir=root / "downloads",
+            default_user="admin",
+            default_password=default_password,
+        )
+        config.init()
+        store = JobStore(root / "state", config)
+        store.init()
+        auth = app.AuthManager(config, session_max_age_seconds=604800)
+        server = app.DownloadServer(
+            ("127.0.0.1", 0),
+            app.RequestHandler,
+            store,
+            config,
+            auth,
+            setup_token=setup_token,
+            cookie_secure=cookie_secure,
+        )
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            yield server.server_address[1], config
+        finally:
+            server.shutdown()
+            server.server_close()
+
+    def login_headers(self, port, password="test-password"):
+        status, headers, _ = self.request(
+            port,
+            "POST",
+            "/api/auth/login",
+            {"username": "admin", "password": password},
+        )
+        self.assertEqual(status, 200)
+        cookie = headers["Set-Cookie"].split(";", 1)[0]
+        status, _, payload = self.request(
+            port, "GET", "/api/auth/me", headers={"Cookie": cookie}
+        )
+        self.assertEqual(status, 200)
+        csrf_token = json.loads(payload)["csrf_token"]
+        return {"Cookie": cookie, "X-CSRF-Token": csrf_token}
+
+    def test_authenticated_mutation_requires_csrf_token(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.running_server(Path(tmp)) as (port, _):
+                status, headers, _ = self.request(
+                    port,
+                    "POST",
+                    "/api/auth/login",
+                    {"username": "admin", "password": "test-password"},
+                )
+                self.assertEqual(status, 200)
+                cookie = headers["Set-Cookie"].split(";", 1)[0]
+
+                status, _, _ = self.request(
+                    port,
+                    "POST",
+                    "/api/auth/logout",
+                    {},
+                    headers={"Cookie": cookie},
+                )
+                self.assertEqual(status, 403)
+
+                status, _, payload = self.request(
+                    port, "GET", "/api/auth/me", headers={"Cookie": cookie}
+                )
+                csrf_token = json.loads(payload)["csrf_token"]
+                status, _, _ = self.request(
+                    port,
+                    "POST",
+                    "/api/auth/logout",
+                    {},
+                    headers={"Cookie": cookie, "X-CSRF-Token": csrf_token},
+                )
+                self.assertEqual(status, 200)
+
+    def test_oversized_json_request_returns_413(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.running_server(Path(tmp)) as (port, _):
+                status, _, _ = self.request(
+                    port,
+                    "POST",
+                    "/api/auth/login",
+                    headers={"Content-Length": str(app.MAX_JSON_BODY_BYTES + 1)},
+                )
+                self.assertEqual(status, 413)
+
+    def test_security_headers_are_present(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.running_server(Path(tmp)) as (port, _):
+                status, headers, _ = self.request(port, "GET", "/login")
+                self.assertEqual(status, 200)
+                self.assertIn(
+                    "default-src 'self'", headers["Content-Security-Policy"]
+                )
+                self.assertEqual(headers["X-Frame-Options"], "DENY")
+                self.assertEqual(headers["X-Content-Type-Options"], "nosniff")
+                self.assertEqual(headers["Referrer-Policy"], "no-referrer")
+
+    def test_secure_cookie_can_be_enabled_per_server(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.running_server(Path(tmp), cookie_secure=True) as (port, _):
+                status, headers, _ = self.request(
+                    port,
+                    "POST",
+                    "/api/auth/login",
+                    {"username": "admin", "password": "test-password"},
+                )
+                self.assertEqual(status, 200)
+                self.assertIn("; Secure", headers["Set-Cookie"])
+
     def test_login_rate_limit_returns_429(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -1123,21 +1243,14 @@ class AuthHttpTests(unittest.TestCase):
                 status, _, _ = self.request(port, "GET", "/api/jobs")
                 self.assertEqual(status, 401)
 
-                status, headers, payload = self.request(
-                    port,
-                    "POST",
-                    "/api/auth/login",
-                    {"username": "admin", "password": "test-password"},
-                )
-                self.assertEqual(status, 200)
-                self.assertIn("tgdl_session=", headers["Set-Cookie"])
-                cookie = headers["Set-Cookie"].split(";", 1)[0]
+                auth_headers = self.login_headers(port)
+                cookie = auth_headers["Cookie"]
 
                 status, _, payload = self.request(
                     port,
                     "GET",
                     "/api/jobs",
-                    headers={"Cookie": cookie},
+                    headers=auth_headers,
                 )
                 self.assertEqual(status, 200)
                 self.assertEqual(json.loads(payload)["jobs"], [])
@@ -1147,7 +1260,7 @@ class AuthHttpTests(unittest.TestCase):
                     "POST",
                     "/api/auth/logout",
                     {},
-                    headers={"Cookie": cookie},
+                    headers=auth_headers,
                 )
                 self.assertEqual(status, 200)
                 status, _, _ = self.request(
@@ -1192,21 +1305,14 @@ class AuthHttpTests(unittest.TestCase):
                 status, _, _ = self.request(port, "POST", f"/api/jobs/{job['id']}/resume", {})
                 self.assertEqual(status, 401)
 
-                status, headers, _ = self.request(
-                    port,
-                    "POST",
-                    "/api/auth/login",
-                    {"username": "admin", "password": "test-password"},
-                )
-                self.assertEqual(status, 200)
-                cookie = headers["Set-Cookie"].split(";", 1)[0]
+                auth_headers = self.login_headers(port)
 
                 status, _, payload = self.request(
                     port,
                     "POST",
                     f"/api/jobs/{job['id']}/pause",
                     {},
-                    headers={"Cookie": cookie},
+                    headers=auth_headers,
                 )
                 self.assertEqual(status, 200)
                 paused = json.loads(payload)["job"]
@@ -1218,7 +1324,7 @@ class AuthHttpTests(unittest.TestCase):
                     "POST",
                     f"/api/jobs/{job['id']}/resume",
                     {},
-                    headers={"Cookie": cookie},
+                    headers=auth_headers,
                 )
                 self.assertEqual(status, 200)
                 resumed = json.loads(payload)["job"]
@@ -1327,21 +1433,14 @@ class AuthHttpTests(unittest.TestCase):
                     status, _, _ = self.request(port, "POST", "/api/tdl/login/qr/start", {})
                     self.assertEqual(status, 401)
 
-                    status, headers, _ = self.request(
-                        port,
-                        "POST",
-                        "/api/auth/login",
-                        {"username": "admin", "password": "test-password"},
-                    )
-                    self.assertEqual(status, 200)
-                    cookie = headers["Set-Cookie"].split(";", 1)[0]
+                    auth_headers = self.login_headers(port)
 
                     status, _, payload = self.request(
                         port,
                         "POST",
                         "/api/tdl/login/qr/start",
                         {},
-                        headers={"Cookie": cookie},
+                        headers=auth_headers,
                     )
                     self.assertEqual(status, 200)
                     self.assertEqual(json.loads(payload)["state"], "running")
@@ -1350,7 +1449,7 @@ class AuthHttpTests(unittest.TestCase):
                         port,
                         "GET",
                         "/api/tdl/login/qr/status",
-                        headers={"Cookie": cookie},
+                        headers=auth_headers,
                     )
                     self.assertEqual(status, 200)
                     self.assertIn("Scan QR code", json.loads(payload)["output"])
@@ -1409,21 +1508,14 @@ class AuthHttpTests(unittest.TestCase):
                     status, _, _ = self.request(port, "POST", "/api/tdl/login/input", {})
                     self.assertEqual(status, 401)
 
-                    status, headers, _ = self.request(
-                        port,
-                        "POST",
-                        "/api/auth/login",
-                        {"username": "admin", "password": "test-password"},
-                    )
-                    self.assertEqual(status, 200)
-                    cookie = headers["Set-Cookie"].split(";", 1)[0]
+                    auth_headers = self.login_headers(port)
 
                     status, _, payload = self.request(
                         port,
                         "POST",
                         "/api/tdl/login/code/start",
                         {},
-                        headers={"Cookie": cookie},
+                        headers=auth_headers,
                     )
                     self.assertEqual(status, 200)
                     self.assertEqual(json.loads(payload)["mode"], "code")
@@ -1432,7 +1524,7 @@ class AuthHttpTests(unittest.TestCase):
                         port,
                         "GET",
                         "/api/tdl/login/status",
-                        headers={"Cookie": cookie},
+                        headers=auth_headers,
                     )
                     self.assertEqual(status, 200)
                     self.assertIn("Enter code", json.loads(payload)["output"])
@@ -1442,7 +1534,7 @@ class AuthHttpTests(unittest.TestCase):
                         "POST",
                         "/api/tdl/login/input",
                         {"text": "+8613000000000"},
-                        headers={"Cookie": cookie},
+                        headers=auth_headers,
                     )
                     self.assertEqual(status, 200)
                     self.assertIn("+8613000000000", json.loads(payload)["output"])
@@ -1491,20 +1583,13 @@ class AuthHttpTests(unittest.TestCase):
                 status, _, _ = self.request(port, "GET", f"/api/fs/dirs?path={query_path}")
                 self.assertEqual(status, 401)
 
-                status, headers, _ = self.request(
-                    port,
-                    "POST",
-                    "/api/auth/login",
-                    {"username": "admin", "password": "test-password"},
-                )
-                self.assertEqual(status, 200)
-                cookie = headers["Set-Cookie"].split(";", 1)[0]
+                auth_headers = self.login_headers(port)
 
                 status, _, payload = self.request(
                     port,
                     "GET",
                     f"/api/fs/dirs?path={query_path}",
-                    headers={"Cookie": cookie},
+                    headers=auth_headers,
                 )
 
                 self.assertEqual(status, 200)
@@ -1544,20 +1629,13 @@ class AuthHttpTests(unittest.TestCase):
                 status, _, _ = self.request(port, "GET", "/api/sources")
                 self.assertEqual(status, 401)
 
-                status, headers, _ = self.request(
-                    port,
-                    "POST",
-                    "/api/auth/login",
-                    {"username": "admin", "password": "test-password"},
-                )
-                self.assertEqual(status, 200)
-                cookie = headers["Set-Cookie"].split(";", 1)[0]
+                auth_headers = self.login_headers(port)
 
                 status, _, payload = self.request(
                     port,
                     "GET",
                     "/api/sources",
-                    headers={"Cookie": cookie},
+                    headers=auth_headers,
                 )
                 self.assertEqual(status, 200)
                 data = json.loads(payload)
@@ -1572,7 +1650,7 @@ class AuthHttpTests(unittest.TestCase):
                         "default_source_id": "beta_bot",
                         "sources": data["sources"],
                     },
-                    headers={"Cookie": cookie},
+                    headers=auth_headers,
                 )
                 self.assertEqual(status, 200)
                 self.assertEqual(json.loads(payload)["default_source_id"], "beta_bot")
@@ -1629,20 +1707,13 @@ class ForwarderStatusApiTests(unittest.TestCase):
                     helper = AuthHttpTests()
                     port = server.server_address[1]
 
-                    status, headers, _ = helper.request(
-                        port,
-                        "POST",
-                        "/api/auth/login",
-                        {"username": "admin", "password": "test-password"},
-                    )
-                    self.assertEqual(status, 200)
-                    cookie = headers["Set-Cookie"].split(";", 1)[0]
+                    auth_headers = helper.login_headers(port)
 
                     status, _, payload = helper.request(
                         port,
                         "GET",
                         "/api/forwarder/status",
-                        headers={"Cookie": cookie},
+                        headers=auth_headers,
                     )
 
                     self.assertEqual(status, 200)
@@ -1734,21 +1805,14 @@ class ForwarderStatusApiTests(unittest.TestCase):
                     status, _, _ = helper.request(port, "POST", "/api/forwarder/restart", {})
                     self.assertEqual(status, 401)
 
-                    status, headers, _ = helper.request(
-                        port,
-                        "POST",
-                        "/api/auth/login",
-                        {"username": "admin", "password": "test-password"},
-                    )
-                    self.assertEqual(status, 200)
-                    cookie = headers["Set-Cookie"].split(";", 1)[0]
+                    auth_headers = helper.login_headers(port)
 
                     status, _, payload = helper.request(
                         port,
                         "POST",
                         "/api/forwarder/restart",
                         {},
-                        headers={"Cookie": cookie},
+                        headers=auth_headers,
                     )
 
                     self.assertEqual(status, 200)
