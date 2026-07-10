@@ -280,6 +280,25 @@ class MediaPlanTests(unittest.TestCase):
 
 
 class ConfigAuthTests(unittest.TestCase):
+    def test_login_failures_block_and_success_clears_key(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            config = app.ConfigStore(
+                root / "state",
+                default_download_dir=root / "downloads",
+                default_password="test-password",
+            )
+            config.init()
+            auth = app.AuthManager(config)
+            key = "127.0.0.1:admin"
+
+            for _ in range(5):
+                auth.record_login_failure(key, now=1000)
+
+            self.assertEqual(auth.login_retry_after(key, now=1000), 900)
+            auth.clear_login_failures(key)
+            self.assertEqual(auth.login_retry_after(key, now=1000), 0)
+
     def test_new_passwords_require_eight_characters(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -1034,6 +1053,47 @@ class AuthHttpTests(unittest.TestCase):
         headers_out = dict(response.getheaders())
         conn.close()
         return response.status, headers_out, payload
+
+    def test_login_rate_limit_returns_429(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            config = app.ConfigStore(
+                root / "state",
+                default_download_dir=root / "downloads",
+                default_password="test-password",
+            )
+            config.init()
+            store = JobStore(root / "state", config)
+            store.init()
+            auth = app.AuthManager(config)
+            server = app.DownloadServer(
+                ("127.0.0.1", 0), app.RequestHandler, store, config, auth
+            )
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                port = server.server_address[1]
+                for _ in range(5):
+                    status, _, _ = self.request(
+                        port,
+                        "POST",
+                        "/api/auth/login",
+                        {"username": "admin", "password": "wrong-password"},
+                    )
+                    self.assertEqual(status, 401)
+
+                status, headers, _ = self.request(
+                    port,
+                    "POST",
+                    "/api/auth/login",
+                    {"username": "admin", "password": "test-password"},
+                )
+
+                self.assertEqual(status, 429)
+                self.assertGreater(int(headers["Retry-After"]), 0)
+            finally:
+                server.shutdown()
+                server.server_close()
 
     def test_login_cookie_allows_api_access_and_logout_revokes_it(self):
         with tempfile.TemporaryDirectory() as tmp:

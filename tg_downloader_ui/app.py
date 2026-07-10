@@ -62,6 +62,9 @@ SESSION_COOKIE = "tgdl_session"
 SESSION_MAX_AGE_SECONDS = int(os.environ.get("TGDL_SESSION_MAX_AGE", str(7 * 24 * 60 * 60)))
 PASSWORD_ITERATIONS = 200_000
 MIN_PASSWORD_LENGTH = 8
+LOGIN_FAILURE_WINDOW_SECONDS = 5 * 60
+LOGIN_FAILURE_LIMIT = 5
+LOGIN_BLOCK_SECONDS = 15 * 60
 ACTIVE_STATUSES = {"exporting", "downloading", "renaming"}
 CANCEL_EXIT_CODE = 130
 QR_LOGIN_TTL_SECONDS = 120
@@ -942,10 +945,38 @@ class AuthManager:
         self.config_store = config_store
         self.session_max_age_seconds = session_max_age_seconds
         self.sessions: dict[str, dict[str, Any]] = {}
+        self.login_failures: dict[str, list[float]] = {}
+        self.login_blocked_until: dict[str, float] = {}
         self.lock = threading.RLock()
 
     def verify_password(self, username: str, password: str) -> bool:
         return self.config_store.verify_password(username, password)
+
+    def record_login_failure(self, key: str, now: float | None = None) -> None:
+        current = time.time() if now is None else now
+        cutoff = current - LOGIN_FAILURE_WINDOW_SECONDS
+        with self.lock:
+            failures = [
+                value for value in self.login_failures.get(key, []) if value >= cutoff
+            ]
+            failures.append(current)
+            self.login_failures[key] = failures
+            if len(failures) >= LOGIN_FAILURE_LIMIT:
+                self.login_blocked_until[key] = current + LOGIN_BLOCK_SECONDS
+
+    def login_retry_after(self, key: str, now: float | None = None) -> int:
+        current = time.time() if now is None else now
+        with self.lock:
+            blocked_until = self.login_blocked_until.get(key, 0)
+            if blocked_until <= current:
+                self.login_blocked_until.pop(key, None)
+                return 0
+            return max(1, int(blocked_until - current + 0.999))
+
+    def clear_login_failures(self, key: str) -> None:
+        with self.lock:
+            self.login_failures.pop(key, None)
+            self.login_blocked_until.pop(key, None)
 
     def create_session(self, username: str) -> str:
         token = secrets.token_urlsafe(32)
@@ -2784,8 +2815,18 @@ class RequestHandler(BaseHTTPRequestHandler):
                 payload = self.read_json()
                 username = str(payload.get("username") or "")
                 password = str(payload.get("password") or "")
+                login_key = f"{self.client_address[0]}:{username.strip().lower()}"
+                retry_after = self.auth.login_retry_after(login_key)
+                if retry_after:
+                    return self.send_error_text(
+                        HTTPStatus.TOO_MANY_REQUESTS,
+                        "too many login attempts",
+                        headers={"Retry-After": str(retry_after)},
+                    )
                 if not self.auth.verify_password(username, password):
+                    self.auth.record_login_failure(login_key)
                     return self.send_error_text(HTTPStatus.UNAUTHORIZED, "invalid username or password")
+                self.auth.clear_login_failures(login_key)
                 token = self.auth.create_session(username)
                 return self.send_json(
                     {"username": username},
@@ -3062,10 +3103,17 @@ class RequestHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
-    def send_text(self, body: str, status: HTTPStatus = HTTPStatus.OK) -> None:
+    def send_text(
+        self,
+        body: str,
+        status: HTTPStatus = HTTPStatus.OK,
+        headers: dict[str, str] | None = None,
+    ) -> None:
         data = body.encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "text/plain; charset=utf-8")
+        for key, value in (headers or {}).items():
+            self.send_header(key, value)
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
         self.wfile.write(data)
@@ -3085,8 +3133,13 @@ class RequestHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
-    def send_error_text(self, status: HTTPStatus, message: str) -> None:
-        self.send_text(message + "\n", status=status)
+    def send_error_text(
+        self,
+        status: HTTPStatus,
+        message: str,
+        headers: dict[str, str] | None = None,
+    ) -> None:
+        self.send_text(message + "\n", status=status, headers=headers)
 
 
 class DownloadServer(ThreadingHTTPServer):
