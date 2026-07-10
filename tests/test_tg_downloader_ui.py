@@ -1298,9 +1298,9 @@ class AuthHttpTests(unittest.TestCase):
             try:
                 port = server.server_address[1]
 
-                status, _, _ = self.request(port, "POST", f"/api/jobs/{job['id']}/pause", {})
+                status, _, _ = self.request(port, "POST", f"/api/jobs/{job['id']}/pause")
                 self.assertEqual(status, 401)
-                status, _, _ = self.request(port, "POST", f"/api/jobs/{job['id']}/resume", {})
+                status, _, _ = self.request(port, "POST", f"/api/jobs/{job['id']}/resume")
                 self.assertEqual(status, 401)
 
                 auth_headers = self.login_headers(port)
@@ -1418,7 +1418,7 @@ class AuthHttpTests(unittest.TestCase):
                 try:
                     port = server.server_address[1]
 
-                    status, _, _ = self.request(port, "POST", "/api/tdl/login/qr/start", {})
+                    status, _, _ = self.request(port, "POST", "/api/tdl/login/qr/start")
                     self.assertEqual(status, 401)
 
                     auth_headers = self.login_headers(port)
@@ -1491,9 +1491,9 @@ class AuthHttpTests(unittest.TestCase):
                 try:
                     port = server.server_address[1]
 
-                    status, _, _ = self.request(port, "POST", "/api/tdl/login/code/start", {})
+                    status, _, _ = self.request(port, "POST", "/api/tdl/login/code/start")
                     self.assertEqual(status, 401)
-                    status, _, _ = self.request(port, "POST", "/api/tdl/login/input", {})
+                    status, _, _ = self.request(port, "POST", "/api/tdl/login/input")
                     self.assertEqual(status, 401)
 
                     auth_headers = self.login_headers(port)
