@@ -257,7 +257,13 @@ class OpenWrtIpkBuilderTests(unittest.TestCase):
         self.assertIn('TGDL_API_HASH="${TGDL_API_HASH:-}"', init_script)
         self.assertNotIn("TGDL_SETUP_TOKEN", init_script)
         self.assertIn('TGDL_FORWARDER_ENABLED="${TGDL_FORWARDER_ENABLED:-1}"', init_script)
-        self.assertIn('${TGDL_FORWARDER_ENABLED:-1}" = "1"', init_script)
+        self.assertIn("forwarder_enabled() {", init_script)
+        self.assertIn("tr '[:upper:]' '[:lower:]'", init_script)
+        self.assertIn('case "$forwarder_flag" in', init_script)
+        self.assertIn("1|true|yes|on) return 0 ;;", init_script)
+        self.assertIn("*) return 1 ;;", init_script)
+        self.assertIn("if forwarder_enabled; then", init_script)
+        self.assertNotIn('[ "${TGDL_FORWARDER_ENABLED:-1}" = "1" ]', init_script)
         self.assertIn("TGDL_FORWARDER_ENABLED=1", env_example)
         self.assertIn(
             "procd_set_param command /usr/bin/python3 /opt/tg-downloader-ui/app.py",

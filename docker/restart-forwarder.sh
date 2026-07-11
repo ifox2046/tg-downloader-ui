@@ -1,7 +1,15 @@
 #!/bin/sh
 set -eu
 
-[ "${TGDL_FORWARDER_ENABLED:-0}" = "1" ] || {
+forwarder_enabled() {
+  forwarder_flag="$(printf '%s' "${TGDL_FORWARDER_ENABLED:-1}" | tr '[:upper:]' '[:lower:]')"
+  case "$forwarder_flag" in
+    1|true|yes|on) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+forwarder_enabled || {
   echo "forwarder is disabled" >&2
   exit 1
 }

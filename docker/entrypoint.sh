@@ -1,6 +1,14 @@
 #!/bin/sh
 set -eu
 
+forwarder_enabled() {
+  forwarder_flag="$(printf '%s' "${TGDL_FORWARDER_ENABLED:-1}" | tr '[:upper:]' '[:lower:]')"
+  case "$forwarder_flag" in
+    1|true|yes|on) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 if [ "$(id -u)" = "0" ]; then
   mkdir -p /config /downloads /tdl
   chmod 700 /config /downloads /tdl
@@ -11,7 +19,7 @@ fi
 
 supervisor_pid=""
 
-if [ "${TGDL_FORWARDER_ENABLED:-0}" = "1" ]; then
+if forwarder_enabled; then
   tg-downloader-forwarder-supervisor &
   supervisor_pid="$!"
   echo "$supervisor_pid" > "${TGDL_FORWARDER_SUPERVISOR_PID_FILE:-/tmp/tg-downloader-forwarder-supervisor.pid}"

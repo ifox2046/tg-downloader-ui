@@ -1954,10 +1954,18 @@ class DockerComposeTests(unittest.TestCase):
 
         self.assertIn("chmod 700 /config /downloads /tdl", entrypoint)
         self.assertIn("tg-downloader-forwarder-supervisor", entrypoint)
-        self.assertIn("${TGDL_FORWARDER_ENABLED:-0}", entrypoint)
-        self.assertIn('[ "${TGDL_FORWARDER_ENABLED:-0}" = "1" ]', entrypoint)
+        for script in (entrypoint, restart):
+            self.assertIn("forwarder_enabled() {", script)
+            self.assertIn("${TGDL_FORWARDER_ENABLED:-1}", script)
+            self.assertIn("tr '[:upper:]' '[:lower:]'", script)
+            self.assertIn('case "$forwarder_flag" in', script)
+            self.assertIn("1|true|yes|on) return 0 ;;", script)
+            self.assertIn("*) return 1 ;;", script)
+            self.assertNotIn('[ "${TGDL_FORWARDER_ENABLED:-0}" = "1" ]', script)
+            self.assertNotIn('[ "${TGDL_FORWARDER_ENABLED:-1}" = "1" ]', script)
+        self.assertIn("if forwarder_enabled; then", entrypoint)
         self.assertIn("unset TGDL_FORWARDER_RESTART_CMD", entrypoint)
-        self.assertIn('[ "${TGDL_FORWARDER_ENABLED:-0}" = "1" ]', restart)
+        self.assertIn("forwarder_enabled || {", restart)
         self.assertIn("TGDL_FORWARDER_PID_FILE", restart)
         self.assertIn("kill \"$forwarder_pid\"", restart)
 
