@@ -1,0 +1,60 @@
+{
+  "version": "1.0",
+  "timestamp": "2026-07-11T16:28:32+08:00",
+  "phase": "implementation",
+  "phase_name": "true-pause-resume",
+  "phase_dir": ".planning",
+  "plan": 1,
+  "task": 4,
+  "total_tasks": 4,
+  "status": "paused",
+  "completed_tasks": [
+    {
+      "id": 1,
+      "name": "Diagnose tdl restart-from-zero behavior",
+      "status": "done",
+      "commit": "9e4e14c"
+    },
+    {
+      "id": 2,
+      "name": "Implement SIGSTOP/SIGCONT live pause and resume with process-level tests",
+      "status": "done",
+      "commit": "4b4cb74"
+    },
+    {
+      "id": 3,
+      "name": "Verify Docker same-PID and byte-continuity behavior",
+      "status": "done",
+      "commit": "4b4cb74"
+    },
+    {
+      "id": 4,
+      "name": "Verify OpenWrt 23.05 and 24.10 and update documentation",
+      "status": "done",
+      "commit": "4b4cb74"
+    }
+  ],
+  "remaining_tasks": [],
+  "blockers": [],
+  "human_actions_pending": [],
+  "decisions": [
+    {
+      "decision": "Use SIGSTOP and SIGCONT on the worker-owned Popen object for live pause and continue.",
+      "rationale": "This preserves the same process, open file descriptor, and byte offset while avoiding stale or reused database PID signaling.",
+      "phase": "implementation"
+    },
+    {
+      "decision": "Keep tdl --continue only for completed-item recovery after failed or canceled runs.",
+      "rationale": "tdl 0.20.3 does not resume byte ranges inside a partially downloaded single file.",
+      "phase": "implementation"
+    },
+    {
+      "decision": "Continue a stopped child before SIGINT during cancel or service shutdown.",
+      "rationale": "A stopped process cannot handle SIGINT until it receives SIGCONT.",
+      "phase": "implementation"
+    }
+  ],
+  "uncommitted_files": [],
+  "next_action": "Review commit 4b4cb74, then push or package it for release if desired.",
+  "context_notes": "Implementation is complete. Local unittest discovery passed 112 tests with two Windows-only POSIX permission skips. Docker E2E proved PID 21 remained unchanged, bytes stayed fixed while stopped, and increased after continue. OpenWrt 23.05.6 and 24.10.2 process-level E2E tests passed. The two Docker test containers are healthy on ports 19910 and 19911 and all six named volumes remain intact."
+}
