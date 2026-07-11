@@ -499,6 +499,13 @@ class IndexTemplateTests(unittest.TestCase):
         self.assertIn("status.restart_hint", html)
         self.assertIn("restartForwarder()", html)
 
+    def test_forwarder_configuration_hint_links_to_telegram_page(self):
+        html = app.INDEX_HTML
+
+        self.assertIn("status.configuration_hint", html)
+        self.assertIn("showPage('telegram')", html)
+        self.assertNotIn("docker compose restart forwarder", html)
+
     def test_index_visible_labels_are_chinese_admin_console_copy(self):
         html = app.INDEX_HTML
 
@@ -1670,10 +1677,12 @@ class ForwarderStatusApiTests(unittest.TestCase):
 
     def test_forwarder_status_api_reports_restart_not_configured(self):
         original_default = app.default_forwarder_restart_command
-        original_env = app.os.environ.get("TGDL_FORWARDER_RESTART_CMD")
+        original_restart_env = app.os.environ.get("TGDL_FORWARDER_RESTART_CMD")
+        original_enabled_env = app.os.environ.get("TGDL_FORWARDER_ENABLED")
         try:
             app.default_forwarder_restart_command = lambda: []
             app.os.environ.pop("TGDL_FORWARDER_RESTART_CMD", None)
+            app.os.environ.pop("TGDL_FORWARDER_ENABLED", None)
             with tempfile.TemporaryDirectory() as tmp:
                 root = Path(tmp)
                 config = app.ConfigStore(
@@ -1709,15 +1718,63 @@ class ForwarderStatusApiTests(unittest.TestCase):
                     self.assertEqual(data["state"], "missing")
                     self.assertFalse(data["restart_configured"])
                     self.assertIn("TGDL_FORWARDER_RESTART_CMD", data["restart_hint"])
+                    self.assertNotIn(
+                        "docker compose restart forwarder", data["restart_hint"]
+                    )
                 finally:
                     server.shutdown()
                     server.server_close()
         finally:
             app.default_forwarder_restart_command = original_default
-            if original_env is None:
+            if original_restart_env is None:
                 app.os.environ.pop("TGDL_FORWARDER_RESTART_CMD", None)
             else:
-                app.os.environ["TGDL_FORWARDER_RESTART_CMD"] = original_env
+                app.os.environ["TGDL_FORWARDER_RESTART_CMD"] = original_restart_env
+            if original_enabled_env is None:
+                app.os.environ.pop("TGDL_FORWARDER_ENABLED", None)
+            else:
+                app.os.environ["TGDL_FORWARDER_ENABLED"] = original_enabled_env
+
+    def test_forwarder_status_prompts_for_missing_telegram_api(self):
+        original_read = app.read_forwarder_status
+        original_restart_configured = app.forwarder_restart_configured
+        try:
+            app.read_forwarder_status = lambda: {
+                "state": "failed",
+                "last_error": "TGDL_API_ID is required",
+            }
+            app.forwarder_restart_configured = lambda: True
+
+            status = app.forwarder_status_response()
+
+            self.assertTrue(status["configuration_required"])
+            self.assertIn("Telegram 授权", status["configuration_hint"])
+            self.assertEqual(status["last_error"], "TGDL_API_ID is required")
+        finally:
+            app.read_forwarder_status = original_read
+            app.forwarder_restart_configured = original_restart_configured
+
+    def test_forwarder_status_reports_explicitly_disabled_forwarder(self):
+        original_enabled_env = app.os.environ.get("TGDL_FORWARDER_ENABLED")
+        original_restart_configured = app.forwarder_restart_configured
+        try:
+            app.os.environ["TGDL_FORWARDER_ENABLED"] = "0"
+            app.forwarder_restart_configured = lambda: True
+
+            status = app.forwarder_status_response()
+
+            self.assertFalse(status["forwarder_enabled"])
+            self.assertFalse(status["restart_configured"])
+            self.assertIn("TGDL_FORWARDER_ENABLED=1", status["restart_hint"])
+            self.assertNotIn(
+                "docker compose restart forwarder", status["restart_hint"]
+            )
+        finally:
+            app.forwarder_restart_configured = original_restart_configured
+            if original_enabled_env is None:
+                app.os.environ.pop("TGDL_FORWARDER_ENABLED", None)
+            else:
+                app.os.environ["TGDL_FORWARDER_ENABLED"] = original_enabled_env
 
     def test_restart_forwarder_runs_configured_command_without_shell(self):
         result = app.restart_forwarder(

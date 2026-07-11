@@ -76,10 +76,19 @@ ACTIVE_STATUSES = {"exporting", "downloading", "renaming"}
 CANCEL_EXIT_CODE = 130
 QR_LOGIN_TTL_SECONDS = 120
 TDL_LOGIN_OUTPUT_LIMIT = 40000
-FORWARDER_RESTART_HINT = (
-    "Docker 部署请在宿主机执行 docker compose restart forwarder，"
-    "或设置 TGDL_FORWARDER_RESTART_CMD。"
+FORWARDER_DISABLED_HINT = (
+    "forwarder 未启用，请设置 TGDL_FORWARDER_ENABLED=1 并重启部署。"
 )
+FORWARDER_RESTART_HINT = (
+    "forwarder 重启命令未配置，请设置 TGDL_FORWARDER_RESTART_CMD。"
+)
+FORWARDER_CONFIGURATION_HINT = (
+    "尚未配置 Telegram API，请前往“Telegram 授权”填写 API ID 和 API Hash。"
+)
+FORWARDER_CONFIGURATION_ERRORS = {
+    "TGDL_API_ID is required",
+    "TGDL_API_HASH is required",
+}
 
 TELEGRAM_QR_LOGINS: dict[str, dict[str, Any]] = {}
 TELEGRAM_QR_LOCK = threading.RLock()
@@ -2042,9 +2051,10 @@ INDEX_HTML = r"""<!doctype html>
     function renderForwarder(status) {
       const sourceText = status.source_count ? `${status.source_count} 个已启用` : (status.source || '');
       const items = [['状态', `<span class="status ${escapeHtml(status.state || 'unknown')}">${statusLabel(status.state || 'unknown')}</span>`], ['来源', escapeHtml(sourceText)], ['最近来源', escapeHtml(status.last_source || '')], ['已转发', escapeHtml(status.sent_count || 0)], ['错误', escapeHtml(status.last_error || '')]];
+      const configurationAction = status.configuration_hint ? `<button class="secondary" type="button" onclick="showPage('telegram')">配置 Telegram API</button><span class="muted">${escapeHtml(status.configuration_hint)}</span>` : '';
       const restartHint = status.restart_hint || '重启命令未配置';
       const restartButton = status.restart_configured ? '<button class="secondary" onclick="restartForwarder()">重启</button>' : `<button class="secondary" type="button" disabled title="${escapeHtml(restartHint)}">重启</button><span class="muted">${escapeHtml(restartHint)}</span>`;
-      document.getElementById('forwarderStatus').innerHTML = items.map(([label, value], index) => index === 0 ? `<div class="metric forwarder"><strong>${value}</strong><span>${label}</span></div>` : `<div class="metric"><strong>${value}</strong><span>${label}</span></div>`).join('') + '<button class="secondary" onclick="loadForwarderLog()">日志</button>' + restartButton;
+      document.getElementById('forwarderStatus').innerHTML = items.map(([label, value], index) => index === 0 ? `<div class="metric forwarder"><strong>${value}</strong><span>${label}</span></div>` : `<div class="metric"><strong>${value}</strong><span>${label}</span></div>`).join('') + configurationAction + '<button class="secondary" onclick="loadForwarderLog()">日志</button>' + restartButton;
     }
     function renderJobs(jobs) { const body = document.getElementById('jobsBody'); if (!jobs.length) { body.innerHTML = '<tr><td colspan="11"><div class="empty-state"><strong>还没有下载任务</strong><p class="muted">选择来源并输入消息 ID，任务会进入队列。完成后文件会按媒体信息写入归档目录。</p></div></td></tr>'; return; } body.innerHTML = jobs.map(job => { const pct = Math.max(0, Math.min(100, Number(job.progress || 0))); const active = ['queued','exporting','downloading','renaming'].includes(job.status); const resume = ['failed','canceled'].includes(job.status) ? `<button class="secondary" onclick="resumeJob(${job.id})">继续</button>` : ''; const pause = active ? `<button class="secondary" onclick="pauseJob(${job.id})">暂停</button>` : ''; const remove = !['exporting','downloading','renaming'].includes(job.status) ? `<button class="danger" onclick="deleteJob(${job.id})">删除</button>` : ''; return `<tr><td class="mono">#${job.id}</td><td>${escapeHtml(job.source_label || job.source_chat || '')}</td><td class="mono">${job.message_id}</td><td><span class="status ${job.status}">${statusLabel(job.status)}</span></td><td class="title-cell">${escapeHtml(job.title || job.error || '')}</td><td><div class="bar"><i style="width:${pct}%"></i></div><span class="muted">${pct.toFixed(1)}%</span></td><td>${escapeHtml(job.speed || '')}</td><td class="mono">${job.process_pid || ''}</td><td class="path-cell">${escapeHtml(job.download_dir || '')}</td><td class="title-cell">${escapeHtml(job.final_path || job.source_file || '')}</td><td class="actions"><button class="secondary" onclick="loadLog(${job.id})">日志</button>${pause}${resume}${remove}</td></tr>`; }).join(''); }
     async function refreshJobs() { const data = await api('/api/jobs'); renderSummary(data.jobs); renderJobs(data.jobs); if (selectedJob) { document.getElementById('logPanel').textContent = await api(`/api/jobs/${selectedJob}/log`) || ''; } }
@@ -2633,12 +2643,29 @@ def forwarder_restart_configured() -> bool:
         return False
 
 
+def forwarder_enabled() -> bool:
+    return os.environ.get("TGDL_FORWARDER_ENABLED", "1").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
 def forwarder_status_response() -> dict[str, Any]:
     status = read_forwarder_status()
-    restart_configured = forwarder_restart_configured()
+    enabled = forwarder_enabled()
+    restart_configured = enabled and forwarder_restart_configured()
+    status["forwarder_enabled"] = enabled
     status["restart_configured"] = restart_configured
-    if not restart_configured:
+    if not enabled:
+        status["restart_hint"] = FORWARDER_DISABLED_HINT
+    elif not restart_configured:
         status["restart_hint"] = FORWARDER_RESTART_HINT
+    configuration_required = status.get("last_error") in FORWARDER_CONFIGURATION_ERRORS
+    status["configuration_required"] = configuration_required
+    if configuration_required:
+        status["configuration_hint"] = FORWARDER_CONFIGURATION_HINT
     return status
 
 
