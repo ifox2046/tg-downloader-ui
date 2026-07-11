@@ -72,8 +72,10 @@ COOKIE_SECURE = os.environ.get("TGDL_COOKIE_SECURE", "").strip().lower() in {
     "yes",
     "on",
 }
-ACTIVE_STATUSES = {"exporting", "downloading", "renaming"}
+ACTIVE_STATUSES = {"exporting", "downloading", "renaming", "paused"}
 CANCEL_EXIT_CODE = 130
+PROCESS_PAUSE_SIGNAL = getattr(signal, "SIGSTOP", None)
+PROCESS_CONTINUE_SIGNAL = getattr(signal, "SIGCONT", None)
 QR_LOGIN_TTL_SECONDS = 120
 TDL_LOGIN_OUTPUT_LIMIT = 40000
 FORWARDER_DISABLED_HINT = (
@@ -498,6 +500,9 @@ def build_tdl_base_args(
 
 
 def stop_download_process(proc: Any, timeout: float = 5.0) -> None:
+    if PROCESS_CONTINUE_SIGNAL is not None:
+        with contextlib.suppress(OSError):
+            proc.send_signal(PROCESS_CONTINUE_SIGNAL)
     try:
         proc.send_signal(signal.SIGINT)
     except OSError:
@@ -1075,6 +1080,7 @@ class JobStore:
                     export_path TEXT NOT NULL DEFAULT '',
                     process_pid INTEGER NOT NULL DEFAULT 0,
                     cancel_requested INTEGER NOT NULL DEFAULT 0,
+                    pause_requested INTEGER NOT NULL DEFAULT 0,
                     resume_requested INTEGER NOT NULL DEFAULT 0,
                     attempts INTEGER NOT NULL DEFAULT 0,
                     created_at TEXT NOT NULL,
@@ -1087,6 +1093,7 @@ class JobStore:
             self.ensure_column(db, "download_dir", "download_dir TEXT NOT NULL DEFAULT ''")
             self.ensure_column(db, "process_pid", "process_pid INTEGER NOT NULL DEFAULT 0")
             self.ensure_column(db, "cancel_requested", "cancel_requested INTEGER NOT NULL DEFAULT 0")
+            self.ensure_column(db, "pause_requested", "pause_requested INTEGER NOT NULL DEFAULT 0")
             self.ensure_column(db, "resume_requested", "resume_requested INTEGER NOT NULL DEFAULT 0")
             self.ensure_column(db, "source_id", "source_id TEXT NOT NULL DEFAULT ''")
             self.ensure_column(db, "source_label", "source_label TEXT NOT NULL DEFAULT ''")
@@ -1116,8 +1123,9 @@ class JobStore:
                     updated_at = ?,
                     finished_at = ?,
                     process_pid = 0,
-                    cancel_requested = 0
-                WHERE status IN ('exporting', 'downloading', 'renaming')
+                    cancel_requested = 0,
+                    pause_requested = 0
+                WHERE status IN ('exporting', 'downloading', 'renaming', 'paused')
                 """,
                 (now, now),
             )
@@ -1198,7 +1206,7 @@ class JobStore:
                     progress = CASE WHEN resume_requested = 1 THEN progress ELSE 0 END,
                     downloaded = CASE WHEN resume_requested = 1 THEN downloaded ELSE '' END,
                     speed = '', eta = '',
-                    process_pid = 0, cancel_requested = 0
+                    process_pid = 0, cancel_requested = 0, pause_requested = 0
                 WHERE id = ?
                 """,
                 (now, now, row["id"]),
@@ -1220,6 +1228,7 @@ class JobStore:
     def finish_job(self, job_id: int, status: str, **fields: Any) -> None:
         fields["status"] = status
         fields["process_pid"] = 0
+        fields["pause_requested"] = 0
         if status != "canceled":
             fields.setdefault("cancel_requested", 0)
         fields["finished_at"] = utcish_now()
@@ -1241,6 +1250,7 @@ class JobStore:
             error="",
             process_pid=0,
             cancel_requested=0,
+            pause_requested=0,
             resume_requested=0,
             started_at="",
             finished_at="",
@@ -1252,8 +1262,18 @@ class JobStore:
         job = self.get_job(job_id)
         if not job:
             raise ValueError("job not found")
+        if job["status"] == "paused":
+            fields: dict[str, Any] = {
+                "pause_requested": 0,
+                "error": "",
+            }
+            if not int(job.get("process_pid") or 0):
+                fields["status"] = "queued"
+            self.update_job(job_id, **fields)
+            self.append_log(job_id, "\nContinue requested\n")
+            return self.get_job(job_id) or {}
         if job["status"] not in {"failed", "canceled"}:
-            raise ValueError("only failed or canceled jobs can be resumed")
+            raise ValueError("only paused, failed or canceled jobs can be resumed")
         export_path = Path(str(job.get("export_path") or ""))
         can_continue = bool(
             export_path.exists()
@@ -1266,6 +1286,7 @@ class JobStore:
             "error": "",
             "process_pid": 0,
             "cancel_requested": 0,
+            "pause_requested": 0,
             "resume_requested": 1 if can_continue else 0,
             "started_at": "",
             "finished_at": "",
@@ -1303,16 +1324,17 @@ class JobStore:
             raise ValueError("job not found")
         status = str(job["status"])
         if status == "queued":
-            self.finish_job(
+            self.update_job(
                 job_id,
-                "canceled",
-                error="paused by user",
-                cancel_requested=1,
+                status="paused",
+                error="",
+                pause_requested=1,
+                cancel_requested=0,
             )
             self.append_log(job_id, "\nPaused while queued\n")
             return self.get_job(job_id) or {}
-        if status in ACTIVE_STATUSES:
-            self.update_job(job_id, cancel_requested=1, error="pause requested")
+        if status in ACTIVE_STATUSES and status != "paused":
+            self.update_job(job_id, pause_requested=1, error="pause requested")
             self.append_log(job_id, "\nPause requested\n")
             return self.get_job(job_id) or {}
         raise ValueError("only queued or active jobs can be paused")
@@ -1559,13 +1581,43 @@ class DownloadWorker(threading.Thread):
         assert proc.stdout is not None
         self.store.update_job(job_id, status=status, process_pid=getattr(proc, "pid", 0) or 0)
         cancel_watch_done = threading.Event()
+        paused = False
 
         def watch_cancel() -> None:
+            nonlocal paused
             while not cancel_watch_done.wait(0.5):
                 current = self.store.get_job(job_id)
-                if current and int(current.get("cancel_requested") or 0):
+                if not current or proc.poll() is not None:
+                    return
+                if self.stop_event.is_set() or int(current.get("cancel_requested") or 0):
                     stop_download_process(proc)
                     return
+                pause_requested = bool(int(current.get("pause_requested") or 0))
+                if pause_requested and not paused:
+                    if PROCESS_PAUSE_SIGNAL is None:
+                        self.store.update_job(
+                            job_id,
+                            pause_requested=0,
+                            error="live pause is unavailable on this platform",
+                        )
+                        return
+                    try:
+                        proc.send_signal(PROCESS_PAUSE_SIGNAL)
+                    except OSError:
+                        return
+                    paused = True
+                    self.store.update_job(job_id, status="paused", speed="", eta="", error="")
+                    self.store.append_log(job_id, f"\nPaused process {getattr(proc, 'pid', 0) or 0}\n")
+                elif paused and not pause_requested:
+                    if PROCESS_CONTINUE_SIGNAL is None:
+                        return
+                    try:
+                        proc.send_signal(PROCESS_CONTINUE_SIGNAL)
+                    except OSError:
+                        return
+                    paused = False
+                    self.store.update_job(job_id, status=status, error="")
+                    self.store.append_log(job_id, f"\nContinued process {getattr(proc, 'pid', 0) or 0}\n")
 
         watcher = threading.Thread(target=watch_cancel, name=f"cancel-watch-{job_id}", daemon=True)
         watcher.start()
@@ -1799,7 +1851,7 @@ INDEX_HTML = r"""<!doctype html>
     .status { display:inline-flex; align-items:center; min-width:82px; justify-content:center; border-radius:999px; padding:4px 8px; font-size:12px; font-weight:700; background:#e8ece6; color:var(--muted); }
     .status.done, .status.skipped, .status.running { color:var(--good); background:#e3f1e9; }
     .status.failed, .status.canceled, .status.stale { color:var(--bad); background:#f7e5e2; }
-    .status.downloading, .status.exporting, .status.renaming, .status.queued { color:var(--warn); background:#fff0c9; }
+    .status.downloading, .status.exporting, .status.renaming, .status.queued, .status.paused { color:var(--warn); background:#fff0c9; }
     .bar { width:128px; height:8px; border-radius:999px; background:#ddd6ca; overflow:hidden; }
     .bar > i { display:block; height:100%; background:linear-gradient(90deg,var(--accent),#6a927f); width:0%; }
     .actions { display:flex; gap:7px; flex-wrap:wrap; }
@@ -2001,7 +2053,7 @@ INDEX_HTML = r"""<!doctype html>
     let sources = [];
     let defaultSourceId = '';
     const pageTitles = {downloads:'下载任务', paths:'路径设置', sources:'资源来源', telegram:'Telegram 授权', password:'密码管理'};
-    function statusLabel(status) { const labels = {queued:'排队中', exporting:'导出中', downloading:'下载中', renaming:'重命名', done:'已完成', skipped:'已存在', failed:'失败', canceled:'已暂停', running:'运行中', stale:'已失联', missing:'未启动', unknown:'未知'}; return labels[status] || status; }
+    function statusLabel(status) { const labels = {queued:'排队中', exporting:'导出中', downloading:'下载中', renaming:'重命名', paused:'已暂停', done:'已完成', skipped:'已存在', failed:'失败', canceled:'已取消', running:'运行中', stale:'已失联', missing:'未启动', unknown:'未知'}; return labels[status] || status; }
     function escapeHtml(value) { return String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[ch])); }
     async function api(path, options = {}) { const method = String(options.method || 'GET').toUpperCase(); const headers = {'Content-Type':'application/json', ...(options.headers || {})}; if (!['GET','HEAD'].includes(method) && csrfToken) { headers['X-CSRF-Token'] = csrfToken; } const res = await fetch(path, {...options, headers}); if (res.status === 401) { location.href = '/login'; throw new Error('需要登录'); } if (!res.ok) { const text = await res.text(); throw new Error(text || res.statusText); } const type = res.headers.get('Content-Type') || ''; return type.includes('application/json') ? res.json() : res.text(); }
     function showPage(name) { const next = pageTitles[name] ? name : 'downloads'; document.querySelectorAll('.page').forEach(page => page.classList.toggle('active', page.id === `page-${next}`)); document.querySelectorAll('.nav-item').forEach(btn => btn.classList.toggle('active', btn.dataset.page === next)); document.getElementById('pageTitle').textContent = pageTitles[next]; if (location.hash !== `#${next}`) { history.replaceState(null, '', `#${next}`); } }
@@ -2047,7 +2099,7 @@ INDEX_HTML = r"""<!doctype html>
     async function openDirectoryDialog() { document.getElementById('dirDialog').classList.remove('hidden'); await openDirectory(document.getElementById('downloadDir').value); document.getElementById('dirDialogPath').focus(); }
     function closeDirectoryDialog() { document.getElementById('dirDialog').classList.add('hidden'); }
     function selectCurrentDirectory() { if (currentDir) { document.getElementById('downloadDir').value = currentDir; } closeDirectoryDialog(); }
-    function renderSummary(jobs) { const counts = jobs.reduce((acc, job) => { acc[job.status] = (acc[job.status] || 0) + 1; return acc; }, {}); const active = jobs.find(job => ['exporting','downloading','renaming'].includes(job.status)); const items = [['活动', active ? `#${active.id}` : '0'], ['排队', counts.queued || 0], ['完成', (counts.done || 0) + (counts.skipped || 0)], ['失败', counts.failed || 0], ['暂停', counts.canceled || 0]]; document.getElementById('summary').innerHTML = items.map(([label, value]) => `<div class="metric"><strong>${escapeHtml(value)}</strong><span>${label}</span></div>`).join(''); }
+    function renderSummary(jobs) { const counts = jobs.reduce((acc, job) => { acc[job.status] = (acc[job.status] || 0) + 1; return acc; }, {}); const active = jobs.find(job => ['exporting','downloading','renaming','paused'].includes(job.status)); const items = [['活动', active ? `#${active.id}` : '0'], ['排队', counts.queued || 0], ['完成', (counts.done || 0) + (counts.skipped || 0)], ['失败', counts.failed || 0], ['暂停', counts.paused || 0]]; document.getElementById('summary').innerHTML = items.map(([label, value]) => `<div class="metric"><strong>${escapeHtml(value)}</strong><span>${label}</span></div>`).join(''); }
     function renderForwarder(status) {
       const sourceText = status.source_count ? `${status.source_count} 个已启用` : (status.source || '');
       const items = [['状态', `<span class="status ${escapeHtml(status.state || 'unknown')}">${statusLabel(status.state || 'unknown')}</span>`], ['来源', escapeHtml(sourceText)], ['最近来源', escapeHtml(status.last_source || '')], ['已转发', escapeHtml(status.sent_count || 0)], ['错误', escapeHtml(status.last_error || '')]];
@@ -2056,7 +2108,7 @@ INDEX_HTML = r"""<!doctype html>
       const restartButton = status.restart_configured ? '<button class="secondary" onclick="restartForwarder()">重启</button>' : `<button class="secondary" type="button" disabled title="${escapeHtml(restartHint)}">重启</button><span class="muted">${escapeHtml(restartHint)}</span>`;
       document.getElementById('forwarderStatus').innerHTML = items.map(([label, value], index) => index === 0 ? `<div class="metric forwarder"><strong>${value}</strong><span>${label}</span></div>` : `<div class="metric"><strong>${value}</strong><span>${label}</span></div>`).join('') + configurationAction + '<button class="secondary" onclick="loadForwarderLog()">日志</button>' + restartButton;
     }
-    function renderJobs(jobs) { const body = document.getElementById('jobsBody'); if (!jobs.length) { body.innerHTML = '<tr><td colspan="11"><div class="empty-state"><strong>还没有下载任务</strong><p class="muted">选择来源并输入消息 ID，任务会进入队列。完成后文件会按媒体信息写入归档目录。</p></div></td></tr>'; return; } body.innerHTML = jobs.map(job => { const pct = Math.max(0, Math.min(100, Number(job.progress || 0))); const active = ['queued','exporting','downloading','renaming'].includes(job.status); const resume = ['failed','canceled'].includes(job.status) ? `<button class="secondary" onclick="resumeJob(${job.id})">继续</button>` : ''; const pause = active ? `<button class="secondary" onclick="pauseJob(${job.id})">暂停</button>` : ''; const remove = !['exporting','downloading','renaming'].includes(job.status) ? `<button class="danger" onclick="deleteJob(${job.id})">删除</button>` : ''; return `<tr><td class="mono">#${job.id}</td><td>${escapeHtml(job.source_label || job.source_chat || '')}</td><td class="mono">${job.message_id}</td><td><span class="status ${job.status}">${statusLabel(job.status)}</span></td><td class="title-cell">${escapeHtml(job.title || job.error || '')}</td><td><div class="bar"><i style="width:${pct}%"></i></div><span class="muted">${pct.toFixed(1)}%</span></td><td>${escapeHtml(job.speed || '')}</td><td class="mono">${job.process_pid || ''}</td><td class="path-cell">${escapeHtml(job.download_dir || '')}</td><td class="title-cell">${escapeHtml(job.final_path || job.source_file || '')}</td><td class="actions"><button class="secondary" onclick="loadLog(${job.id})">日志</button>${pause}${resume}${remove}</td></tr>`; }).join(''); }
+    function renderJobs(jobs) { const body = document.getElementById('jobsBody'); if (!jobs.length) { body.innerHTML = '<tr><td colspan="11"><div class="empty-state"><strong>还没有下载任务</strong><p class="muted">选择来源并输入消息 ID，任务会进入队列。完成后文件会按媒体信息写入归档目录。</p></div></td></tr>'; return; } body.innerHTML = jobs.map(job => { const pct = Math.max(0, Math.min(100, Number(job.progress || 0))); const active = ['queued','exporting','downloading','renaming'].includes(job.status); const resume = ['paused','failed','canceled'].includes(job.status) ? `<button class="secondary" onclick="resumeJob(${job.id})">继续</button>` : ''; const pause = active ? `<button class="secondary" onclick="pauseJob(${job.id})">暂停</button>` : ''; const remove = !['exporting','downloading','renaming','paused'].includes(job.status) ? `<button class="danger" onclick="deleteJob(${job.id})">删除</button>` : ''; return `<tr><td class="mono">#${job.id}</td><td>${escapeHtml(job.source_label || job.source_chat || '')}</td><td class="mono">${job.message_id}</td><td><span class="status ${job.status}">${statusLabel(job.status)}</span></td><td class="title-cell">${escapeHtml(job.title || job.error || '')}</td><td><div class="bar"><i style="width:${pct}%"></i></div><span class="muted">${pct.toFixed(1)}%</span></td><td>${escapeHtml(job.speed || '')}</td><td class="mono">${job.process_pid || ''}</td><td class="path-cell">${escapeHtml(job.download_dir || '')}</td><td class="title-cell">${escapeHtml(job.final_path || job.source_file || '')}</td><td class="actions"><button class="secondary" onclick="loadLog(${job.id})">日志</button>${pause}${resume}${remove}</td></tr>`; }).join(''); }
     async function refreshJobs() { const data = await api('/api/jobs'); renderSummary(data.jobs); renderJobs(data.jobs); if (selectedJob) { document.getElementById('logPanel').textContent = await api(`/api/jobs/${selectedJob}/log`) || ''; } }
     async function refreshForwarder() { renderForwarder(await api('/api/forwarder/status')); }
     async function refreshAll() { await Promise.all([refreshJobs(), refreshForwarder()]); }
@@ -3267,6 +3319,7 @@ def run_server(host: str = DEFAULT_HOST, port: int = DEFAULT_PORT) -> None:
     finally:
         stop_event.set()
         httpd.server_close()
+        worker.join(timeout=6.0)
 
 
 def main(argv: list[str] | None = None) -> int:

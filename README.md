@@ -22,6 +22,18 @@ proxy or VPN when remote access is required.
 The forwarder is only needed if you want this service to listen for messages
 and forward summaries into your own channel.
 
+## Pause and Recovery Semantics
+
+Pause and Continue are live-process controls on Linux: the service sends
+`SIGSTOP` and `SIGCONT` to the same running `tdl` process, preserving its PID,
+open partial file, and current byte offset. Cancel or service shutdown first
+continues a stopped child and then terminates it cleanly.
+
+This is separate from recovery after an application or container restart.
+`tdl 0.20.3 --continue` can skip fully completed items in a multi-item export,
+but it does not resume byte ranges inside one partially downloaded file. A
+restart can therefore restart the current single file from zero.
+
 ## Docker Quick Start
 
 The Docker image installs an unmodified `tdl` release binary inside the image.

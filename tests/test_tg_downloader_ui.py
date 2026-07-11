@@ -12,6 +12,7 @@ import urllib.parse
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest import mock
 
 import tg_downloader_ui.app as app
 from tg_downloader_ui.app import (
@@ -135,7 +136,9 @@ class CommandConstructionTests(unittest.TestCase):
 
         self.assertNotIn("--proxy", args)
 
-    def test_shutdown_process_for_pause_sends_sigint_before_kill(self):
+    def test_shutdown_stopped_process_continues_before_sigint(self):
+        continue_signal = getattr(app, "PROCESS_CONTINUE_SIGNAL", None) or 1002
+
         class FakeProcess:
             def __init__(self):
                 self.signals = []
@@ -152,9 +155,10 @@ class CommandConstructionTests(unittest.TestCase):
 
         proc = FakeProcess()
 
-        app.stop_download_process(proc)
+        with mock.patch.object(app, "PROCESS_CONTINUE_SIGNAL", continue_signal, create=True):
+            app.stop_download_process(proc)
 
-        self.assertEqual(proc.signals, [signal.SIGINT])
+        self.assertEqual(proc.signals, [continue_signal, signal.SIGINT])
         self.assertFalse(proc.killed)
 
 
@@ -637,7 +641,8 @@ class IndexTemplateTests(unittest.TestCase):
         html = app.INDEX_HTML
 
         for marker in [
-            "canceled:'已暂停'",
+            "paused:'已暂停'",
+            "canceled:'已取消'",
             "function pauseJob(id)",
             "function resumeJob(id)",
             "/api/jobs/${id}/pause",
@@ -949,18 +954,20 @@ class JobManagementTests(unittest.TestCase):
                 "beta_bot",
             )
 
-    def test_pause_queued_job_and_resume_canceled_job(self):
+    def test_pause_queued_job_and_resume_paused_job(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             _, store = self.make_store(root)
             job = store.create_job(23311)
 
-            canceled = store.pause_job(job["id"])
+            paused = store.pause_job(job["id"])
 
-            self.assertEqual(canceled["status"], "canceled")
-            self.assertEqual(canceled["cancel_requested"], 1)
+            self.assertEqual(paused["status"], "paused")
+            self.assertEqual(paused["pause_requested"], 1)
+            self.assertEqual(paused["cancel_requested"], 0)
             resumed = store.resume_job(job["id"])
             self.assertEqual(resumed["status"], "queued")
+            self.assertEqual(resumed["pause_requested"], 0)
             self.assertEqual(resumed["cancel_requested"], 0)
 
     def test_resume_download_job_preserves_progress_and_marks_resume(self):
@@ -1036,7 +1043,7 @@ class JobManagementTests(unittest.TestCase):
             self.assertEqual(canceled["cancel_requested"], 1)
             self.assertEqual(canceled["process_pid"], 12345)
 
-    def test_pause_active_job_sets_cancel_requested_and_keeps_status(self):
+    def test_pause_active_job_sets_pause_requested_without_canceling(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             _, store = self.make_store(root)
@@ -1046,8 +1053,112 @@ class JobManagementTests(unittest.TestCase):
             paused = store.pause_job(job["id"])
 
             self.assertEqual(paused["status"], "downloading")
-            self.assertEqual(paused["cancel_requested"], 1)
+            self.assertEqual(paused["pause_requested"], 1)
+            self.assertEqual(paused["cancel_requested"], 0)
             self.assertEqual(paused["process_pid"], 12345)
+
+    def test_live_pause_and_resume_keep_same_process_and_partial_bytes(self):
+        class BlockingStdout:
+            def __init__(self, finished):
+                self.finished = finished
+
+            def read(self, size):  # noqa: ARG002
+                self.finished.wait(3)
+                return b""
+
+        class FakeProcess:
+            def __init__(self, partial_path):
+                self.pid = 43210
+                self.partial_path = partial_path
+                self.finished = threading.Event()
+                self.running = threading.Event()
+                self.running.set()
+                self.signals = []
+                self.returncode = None
+                self.stdout = BlockingStdout(self.finished)
+                self.writer = threading.Thread(target=self.write_bytes, daemon=True)
+                self.writer.start()
+
+            def write_bytes(self):
+                while not self.finished.is_set():
+                    if self.running.wait(0.01):
+                        with self.partial_path.open("ab") as out:
+                            out.write(b"x")
+                    threading.Event().wait(0.01)
+
+            def send_signal(self, value):
+                self.signals.append(value)
+                if value == app.PROCESS_PAUSE_SIGNAL:
+                    self.running.clear()
+                elif value == app.PROCESS_CONTINUE_SIGNAL:
+                    self.running.set()
+                elif value == signal.SIGINT:
+                    self.returncode = 130
+                    self.finished.set()
+
+            def poll(self):
+                return self.returncode
+
+            def wait(self, timeout=None):
+                self.finished.wait(timeout)
+                return self.returncode or 0
+
+            def kill(self):
+                self.returncode = -9
+                self.finished.set()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _, store = self.make_store(root)
+            queued = store.create_job(23311)
+            job = store.claim_next()
+            partial_path = root / "downloads" / "movie.mp4.tmp"
+            partial_path.parent.mkdir(exist_ok=True)
+            partial_path.write_bytes(b"partial")
+            proc = FakeProcess(partial_path)
+            worker = DownloadWorker(store, threading.Event())
+            result = []
+
+            with (
+                mock.patch.object(app, "PROCESS_PAUSE_SIGNAL", 1001, create=True),
+                mock.patch.object(app, "PROCESS_CONTINUE_SIGNAL", 1002, create=True),
+                mock.patch.object(app.subprocess, "Popen", return_value=proc),
+            ):
+                runner = threading.Thread(
+                    target=lambda: result.append(
+                        worker.run_command(queued["id"], ["tdl", "download"], "downloading")
+                    )
+                )
+                runner.start()
+                self.assertTrue(self.wait_for(lambda: store.get_job(job["id"])["process_pid"] == proc.pid))
+
+                store.pause_job(job["id"])
+                self.assertTrue(self.wait_for(lambda: store.get_job(job["id"])["status"] == "paused"))
+                paused_size = partial_path.stat().st_size
+                threading.Event().wait(0.1)
+                self.assertEqual(partial_path.stat().st_size, paused_size)
+                self.assertEqual(store.get_job(job["id"])["process_pid"], proc.pid)
+
+                store.resume_job(job["id"])
+                self.assertTrue(self.wait_for(lambda: store.get_job(job["id"])["status"] == "downloading"))
+                self.assertTrue(self.wait_for(lambda: partial_path.stat().st_size > paused_size))
+                self.assertEqual(store.get_job(job["id"])["process_pid"], proc.pid)
+
+                store.cancel_job(job["id"])
+                runner.join(3)
+
+            self.assertEqual(result, [app.CANCEL_EXIT_CODE])
+            self.assertEqual(
+                proc.signals,
+                [1001, 1002, 1002, signal.SIGINT],
+            )
+
+    def wait_for(self, predicate, attempts=100):
+        for _ in range(attempts):
+            if predicate():
+                return True
+            threading.Event().wait(0.02)
+        return False
 
 
     def test_delete_finished_job_removes_row_and_files(self):
@@ -1341,8 +1452,9 @@ class AuthHttpTests(unittest.TestCase):
                 )
                 self.assertEqual(status, 200)
                 paused = json.loads(payload)["job"]
-                self.assertEqual(paused["status"], "canceled")
-                self.assertEqual(paused["cancel_requested"], 1)
+                self.assertEqual(paused["status"], "paused")
+                self.assertEqual(paused["pause_requested"], 1)
+                self.assertEqual(paused["cancel_requested"], 0)
 
                 status, _, payload = self.request(
                     port,
@@ -1354,6 +1466,7 @@ class AuthHttpTests(unittest.TestCase):
                 self.assertEqual(status, 200)
                 resumed = json.loads(payload)["job"]
                 self.assertEqual(resumed["status"], "queued")
+                self.assertEqual(resumed["pause_requested"], 0)
                 self.assertEqual(resumed["cancel_requested"], 0)
             finally:
                 server.shutdown()

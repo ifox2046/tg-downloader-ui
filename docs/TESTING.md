@@ -214,9 +214,10 @@ Pause:
 
 Expected:
 
-- Active job records a pause request.
-- Final stored status may be `canceled`, but the UI presents the operator
-  action as paused/resumable.
+- Active job records a pause request and transitions to `paused`.
+- The `tdl` PID remains unchanged and is in the Linux stopped state.
+- The existing partial file is not recreated or truncated, and its size stays
+  unchanged while paused.
 
 Resume:
 
@@ -225,10 +226,15 @@ Resume:
 
 Expected:
 
-- Attempts count increases only as expected for the resumed run.
-- Existing progress/downloaded-size fields are preserved at resume time.
-- The resumed command includes both `tdl download --continue` and
-  `-f <export.json>`.
+- Continue sends `SIGCONT` to the same PID; it does not launch a new `tdl`
+  command or increment the attempt count.
+- Existing progress/downloaded-size fields are preserved and partial-file
+  bytes continue increasing from the paused size.
+
+Restart recovery is different: `tdl download --continue -f <export.json>` is
+retained for skipping fully completed items after a failed/canceled run, but
+`tdl 0.20.3` does not resume byte ranges inside one partially downloaded file.
+Do not treat container/application restart as single-file byte resume.
 
 Retry:
 
