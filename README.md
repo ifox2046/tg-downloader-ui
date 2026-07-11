@@ -63,9 +63,9 @@ These host directories must be writable by UID/GID `1000`. The container runs
 the application as that non-root user after preparing the mount roots.
 
 The `0.1.0` Docker image targets Linux x86-64 and verifies the checksum of the
-bundled unmodified `tdl` `0.20.3` binary during the build. The container always
-starts the Web UI; set `TGDL_FORWARDER_ENABLED=1` to also start the optional
-forwarder.
+bundled unmodified `tdl` `0.20.3` binary during the build. The container starts
+the Web UI and optional forwarder by default; set `TGDL_FORWARDER_ENABLED=0`
+to opt out of the forwarder.
 The forwarder restart button restarts the in-container forwarder process; it
 does not need the Docker socket.
 
@@ -146,7 +146,7 @@ Configuration priority:
 | `TGDL_COOKIE_SECURE` | no | `0` | Set to `1` when the browser reaches the service through HTTPS. |
 | `TGDL_PUBLISH_HOST` | Docker | `127.0.0.1` | Host address used by Docker Compose port publication. |
 | `TGDL_PUBLISH_PORT` | Docker | `9910` | Host port used by Docker Compose. |
-| `TGDL_FORWARDER_ENABLED` | no | `0` | Set to `1` to enable the optional forwarder in Docker or OpenWRT. |
+| `TGDL_FORWARDER_ENABLED` | no | `1` for packaged deployments | Docker and OpenWRT start the optional forwarder by default. Set to `0` to opt out. |
 | `TGDL_API_ID` | forwarder | empty | Telegram API ID from `my.telegram.org`. |
 | `TGDL_API_HASH` | forwarder | empty | Telegram API hash from `my.telegram.org`. |
 | `TGDL_SESSION_FILE` | forwarder | state-local session path | Telethon string session file. |
@@ -215,8 +215,8 @@ Edit `/etc/tg-downloader-ui.env`, then restart:
 /etc/init.d/tg-downloader-ui restart
 ```
 
-Set `TGDL_FORWARDER_ENABLED=1` in that file only when the optional forwarder is
-configured and should run.
+Docker and OpenWRT packaged deployments start the optional forwarder by default.
+Set `TGDL_FORWARDER_ENABLED=0` in that file to opt out on OpenWRT.
 
 ## Development
 

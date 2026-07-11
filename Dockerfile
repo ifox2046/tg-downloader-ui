@@ -17,7 +17,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     TGDL_TDL_STORAGE=type=bolt,path=/tdl/data \
     TGDL_TDL_LOG=/config/tdl.log \
     TGDL_SESSION_FILE=/tdl/session.txt \
-    TGDL_FORWARDER_ENABLED=0 \
+    TGDL_FORWARDER_ENABLED=1 \
     TGDL_FORWARDER_RESTART_CMD=/usr/local/bin/tg-downloader-forwarder-restart
 
 WORKDIR /app

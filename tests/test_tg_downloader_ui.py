@@ -1813,17 +1813,21 @@ class ForwarderStatusApiTests(unittest.TestCase):
 
 
 class DockerComposeTests(unittest.TestCase):
-    def test_compose_publishes_only_to_loopback_and_disables_forwarder(self):
+    def test_compose_publishes_only_to_loopback_and_enables_forwarder(self):
         compose = Path("docker-compose.yml").read_text(encoding="utf-8")
+        dockerfile = Path("Dockerfile").read_text(encoding="utf-8")
+        env_example = Path(".env.example").read_text(encoding="utf-8")
 
         self.assertIn(
             "${TGDL_PUBLISH_HOST:-127.0.0.1}:${TGDL_PUBLISH_PORT:-9910}:9910",
             compose,
         )
         self.assertIn(
-            'TGDL_FORWARDER_ENABLED: "${TGDL_FORWARDER_ENABLED:-0}"',
+            'TGDL_FORWARDER_ENABLED: "${TGDL_FORWARDER_ENABLED:-1}"',
             compose,
         )
+        self.assertIn("TGDL_FORWARDER_ENABLED=1", dockerfile)
+        self.assertIn("TGDL_FORWARDER_ENABLED=1", env_example)
         self.assertNotIn("TGDL_SETUP_TOKEN", compose)
         self.assertIn('TGDL_COOKIE_SECURE: "${TGDL_COOKIE_SECURE:-0}"', compose)
 

@@ -240,6 +240,9 @@ class OpenWrtIpkBuilderTests(unittest.TestCase):
     def test_init_script_exports_env_for_app_and_forwarder(self):
         root = Path(__file__).resolve().parents[1]
         init_script = (root / "tg-downloader-ui.init").read_text(encoding="utf-8")
+        env_example = (root / "openwrt" / "tg-downloader-ui.env.example").read_text(
+            encoding="utf-8"
+        )
 
         self.assertEqual(
             init_script.count("set -a; [ -f /etc/tg-downloader-ui.env ]"),
@@ -253,7 +256,9 @@ class OpenWrtIpkBuilderTests(unittest.TestCase):
         self.assertIn('TGDL_STATE_DIR="${TGDL_STATE_DIR:-/etc/tg-downloader-ui}"', init_script)
         self.assertIn('TGDL_API_HASH="${TGDL_API_HASH:-}"', init_script)
         self.assertNotIn("TGDL_SETUP_TOKEN", init_script)
-        self.assertIn('${TGDL_FORWARDER_ENABLED:-0}" = "1"', init_script)
+        self.assertIn('TGDL_FORWARDER_ENABLED="${TGDL_FORWARDER_ENABLED:-1}"', init_script)
+        self.assertIn('${TGDL_FORWARDER_ENABLED:-1}" = "1"', init_script)
+        self.assertIn("TGDL_FORWARDER_ENABLED=1", env_example)
         self.assertIn(
             "procd_set_param command /usr/bin/python3 /opt/tg-downloader-ui/app.py",
             init_script,
