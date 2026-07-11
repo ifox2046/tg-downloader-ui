@@ -1754,6 +1754,23 @@ class ForwarderStatusApiTests(unittest.TestCase):
             app.read_forwarder_status = original_read
             app.forwarder_restart_configured = original_restart_configured
 
+    def test_forwarder_status_ignores_structured_configuration_error(self):
+        original_read = app.read_forwarder_status
+        original_restart_configured = app.forwarder_restart_configured
+        try:
+            app.read_forwarder_status = lambda: {
+                "state": "failed",
+                "last_error": [],
+            }
+            app.forwarder_restart_configured = lambda: True
+
+            status = app.forwarder_status_response()
+
+            self.assertFalse(status["configuration_required"])
+        finally:
+            app.read_forwarder_status = original_read
+            app.forwarder_restart_configured = original_restart_configured
+
     def test_forwarder_status_reports_explicitly_disabled_forwarder(self):
         original_enabled_env = app.os.environ.get("TGDL_FORWARDER_ENABLED")
         original_restart_configured = app.forwarder_restart_configured

@@ -2662,7 +2662,8 @@ def forwarder_status_response() -> dict[str, Any]:
         status["restart_hint"] = FORWARDER_DISABLED_HINT
     elif not restart_configured:
         status["restart_hint"] = FORWARDER_RESTART_HINT
-    configuration_required = status.get("last_error") in FORWARDER_CONFIGURATION_ERRORS
+    configuration_error = str(status.get("last_error") or "")
+    configuration_required = configuration_error in FORWARDER_CONFIGURATION_ERRORS
     status["configuration_required"] = configuration_required
     if configuration_required:
         status["configuration_hint"] = FORWARDER_CONFIGURATION_HINT
