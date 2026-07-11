@@ -4,6 +4,7 @@ import json
 import os
 import signal
 import stat
+import subprocess
 import sys
 import tempfile
 import threading
@@ -26,6 +27,12 @@ from tg_downloader_ui.app import (
     sanitize_filename,
     write_sidecar_metadata,
 )
+
+
+def extract_shell_function(script: str, name: str) -> str:
+    start = script.index(f"{name}() {{")
+    end = script.index("\n}", start) + 2
+    return script[start:end]
 
 
 class MetadataParsingTests(unittest.TestCase):
@@ -1656,6 +1663,29 @@ class AuthHttpTests(unittest.TestCase):
 
 
 class ForwarderStatusApiTests(unittest.TestCase):
+    def test_forwarder_enabled_parses_supported_values(self):
+        key = "TGDL_FORWARDER_ENABLED"
+        had_original = key in app.os.environ
+        original = app.os.environ.get(key)
+        try:
+            app.os.environ.pop(key, None)
+            self.assertTrue(app.forwarder_enabled())
+
+            for value in ("1", "true", "TRUE", "Yes", "oN"):
+                with self.subTest(value=value):
+                    app.os.environ[key] = value
+                    self.assertTrue(app.forwarder_enabled())
+
+            for value in ("0", "false", "no", "off", "", "garbage"):
+                with self.subTest(value=value):
+                    app.os.environ[key] = value
+                    self.assertFalse(app.forwarder_enabled())
+        finally:
+            if had_original:
+                app.os.environ[key] = original
+            else:
+                app.os.environ.pop(key, None)
+
     def test_app_reads_forwarder_status_json_without_importing_forwarder_package(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "forwarder_status.json"
@@ -1968,6 +1998,39 @@ class DockerComposeTests(unittest.TestCase):
         self.assertIn("forwarder_enabled || {", restart)
         self.assertIn("TGDL_FORWARDER_PID_FILE", restart)
         self.assertIn("kill \"$forwarder_pid\"", restart)
+
+    def test_docker_forwarder_helpers_parse_supported_values(self):
+        scripts = {
+            "entrypoint": Path("docker/entrypoint.sh").read_text(encoding="utf-8"),
+            "restart": Path("docker/restart-forwarder.sh").read_text(encoding="utf-8"),
+        }
+        cases = (
+            (None, True),
+            ("1", True),
+            ("TRUE", True),
+            ("Yes", True),
+            ("oN", True),
+            ("0", False),
+            ("false", False),
+            ("garbage", False),
+        )
+
+        for script_name, script in scripts.items():
+            function = extract_shell_function(script, "forwarder_enabled")
+            for value, expected in cases:
+                with self.subTest(script=script_name, value=value):
+                    env = os.environ.copy()
+                    if value is None:
+                        env.pop("TGDL_FORWARDER_ENABLED", None)
+                    else:
+                        env["TGDL_FORWARDER_ENABLED"] = value
+                    result = subprocess.run(
+                        ["sh", "-c", f"{function}\nforwarder_enabled"],
+                        env=env,
+                        capture_output=True,
+                        check=False,
+                    )
+                    self.assertEqual(result.returncode, 0 if expected else 1)
 
 
 class WorkerSkipTests(unittest.TestCase):

@@ -2,12 +2,20 @@ import hashlib
 import importlib.util
 import io
 import json
+import os
+import subprocess
 import tarfile
 import tempfile
 import unittest
 import zipfile
 from pathlib import Path
 from unittest import mock
+
+
+def extract_shell_function(script: str, name: str) -> str:
+    start = script.index(f"{name}() {{")
+    end = script.index("\n}", start) + 2
+    return script[start:end]
 
 
 def load_builder():
@@ -273,6 +281,36 @@ class OpenWrtIpkBuilderTests(unittest.TestCase):
             "procd_set_param command /usr/bin/python3 /opt/tg-downloader-ui/forwarder.py",
             init_script,
         )
+
+    def test_init_script_forwarder_helper_parses_supported_values(self):
+        root = Path(__file__).resolve().parents[1]
+        init_script = (root / "tg-downloader-ui.init").read_text(encoding="utf-8")
+        function = extract_shell_function(init_script, "forwarder_enabled")
+        cases = (
+            (None, True),
+            ("1", True),
+            ("TRUE", True),
+            ("Yes", True),
+            ("oN", True),
+            ("0", False),
+            ("false", False),
+            ("garbage", False),
+        )
+
+        for value, expected in cases:
+            with self.subTest(value=value):
+                env = os.environ.copy()
+                if value is None:
+                    env.pop("TGDL_FORWARDER_ENABLED", None)
+                else:
+                    env["TGDL_FORWARDER_ENABLED"] = value
+                result = subprocess.run(
+                    ["sh", "-c", f"{function}\nforwarder_enabled"],
+                    env=env,
+                    capture_output=True,
+                    check=False,
+                )
+                self.assertEqual(result.returncode, 0 if expected else 1)
 
 
 if __name__ == "__main__":
