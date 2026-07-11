@@ -2,7 +2,7 @@
 set -eu
 
 forwarder_enabled() {
-  forwarder_flag="$(printf '%s' "${TGDL_FORWARDER_ENABLED:-1}" | tr '[:upper:]' '[:lower:]')"
+  forwarder_flag="$(printf '%s' "${TGDL_FORWARDER_ENABLED-1}" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | tr '[:upper:]' '[:lower:]')"
   case "$forwarder_flag" in
     1|true|yes|on) return 0 ;;
     *) return 1 ;;

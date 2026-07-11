@@ -5,7 +5,7 @@ STOP=10
 USE_PROCD=1
 
 forwarder_enabled() {
-	forwarder_flag="$(printf '%s' "${TGDL_FORWARDER_ENABLED:-1}" | tr '[:upper:]' '[:lower:]')"
+	forwarder_flag="$(printf '%s' "${TGDL_FORWARDER_ENABLED-1}" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | tr '[:upper:]' '[:lower:]')"
 	case "$forwarder_flag" in
 		1|true|yes|on) return 0 ;;
 		*) return 1 ;;
@@ -31,7 +31,7 @@ set_runtime_env() {
 		TGDL_AUTH_PASSWORD="${TGDL_AUTH_PASSWORD:-}" \
 		TGDL_TDL_DIR="${TGDL_TDL_DIR:-/etc/tg-downloader-ui/tdl}" \
 		TGDL_CHAT="${TGDL_CHAT:-}" \
-		TGDL_FORWARDER_ENABLED="${TGDL_FORWARDER_ENABLED:-1}" \
+		TGDL_FORWARDER_ENABLED="${TGDL_FORWARDER_ENABLED-1}" \
 		TGDL_API_ID="${TGDL_API_ID:-}" \
 		TGDL_API_HASH="${TGDL_API_HASH:-}" \
 		TGDL_SESSION_FILE="${TGDL_SESSION_FILE:-/etc/tg-downloader-ui/session.txt}" \

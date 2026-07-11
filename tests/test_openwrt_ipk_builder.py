@@ -13,9 +13,22 @@ from unittest import mock
 
 
 def extract_shell_function(script: str, name: str) -> str:
-    start = script.index(f"{name}() {{")
-    end = script.index("\n}", start) + 2
-    return script[start:end]
+    declaration = f"{name}() {{"
+    lines = script.splitlines()
+    for start, line in enumerate(lines):
+        if line.strip() == declaration:
+            break
+    else:
+        raise ValueError(f"shell function not found: {name}")
+
+    depth = 0
+    function_lines = []
+    for line in lines[start:]:
+        function_lines.append(line)
+        depth += line.count("{") - line.count("}")
+        if depth == 0:
+            return "\n".join(function_lines)
+    raise ValueError(f"shell function is not closed: {name}")
 
 
 def load_builder():
@@ -264,8 +277,16 @@ class OpenWrtIpkBuilderTests(unittest.TestCase):
         self.assertIn('TGDL_STATE_DIR="${TGDL_STATE_DIR:-/etc/tg-downloader-ui}"', init_script)
         self.assertIn('TGDL_API_HASH="${TGDL_API_HASH:-}"', init_script)
         self.assertNotIn("TGDL_SETUP_TOKEN", init_script)
-        self.assertIn('TGDL_FORWARDER_ENABLED="${TGDL_FORWARDER_ENABLED:-1}"', init_script)
+        self.assertIn('TGDL_FORWARDER_ENABLED="${TGDL_FORWARDER_ENABLED-1}"', init_script)
+        self.assertNotIn(
+            'TGDL_FORWARDER_ENABLED="${TGDL_FORWARDER_ENABLED:-1}"', init_script
+        )
         self.assertIn("forwarder_enabled() {", init_script)
+        self.assertIn("${TGDL_FORWARDER_ENABLED-1}", init_script)
+        self.assertIn(
+            "sed 's/^[[:space:]]*//; s/[[:space:]]*$//'",
+            init_script,
+        )
         self.assertIn("tr '[:upper:]' '[:lower:]'", init_script)
         self.assertIn('case "$forwarder_flag" in', init_script)
         self.assertIn("1|true|yes|on) return 0 ;;", init_script)
@@ -292,6 +313,10 @@ class OpenWrtIpkBuilderTests(unittest.TestCase):
             ("TRUE", True),
             ("Yes", True),
             ("oN", True),
+            (" true ", True),
+            (" YES ", True),
+            ("", False),
+            ("   ", False),
             ("0", False),
             ("false", False),
             ("garbage", False),
@@ -311,6 +336,32 @@ class OpenWrtIpkBuilderTests(unittest.TestCase):
                     check=False,
                 )
                 self.assertEqual(result.returncode, 0 if expected else 1)
+
+    def test_extract_shell_function_uses_exact_declaration_and_matching_brace(self):
+        script = """not_forwarder_enabled() {
+  return 1
+}
+forwarder_enabled() {
+  if true; then
+    {
+      return 0
+    }
+  fi
+}
+exit 99
+"""
+
+        function = extract_shell_function(script, "forwarder_enabled")
+        result = subprocess.run(
+            ["sh", "-c", f"{function}\nforwarder_enabled"],
+            capture_output=True,
+            check=False,
+        )
+
+        self.assertEqual(function.splitlines()[0], "forwarder_enabled() {")
+        self.assertNotIn("not_forwarder_enabled", function)
+        self.assertNotIn("exit 99", function)
+        self.assertEqual(result.returncode, 0)
 
 
 if __name__ == "__main__":

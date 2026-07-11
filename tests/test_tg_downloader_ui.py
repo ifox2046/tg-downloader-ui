@@ -30,9 +30,22 @@ from tg_downloader_ui.app import (
 
 
 def extract_shell_function(script: str, name: str) -> str:
-    start = script.index(f"{name}() {{")
-    end = script.index("\n}", start) + 2
-    return script[start:end]
+    declaration = f"{name}() {{"
+    lines = script.splitlines()
+    for start, line in enumerate(lines):
+        if line.strip() == declaration:
+            break
+    else:
+        raise ValueError(f"shell function not found: {name}")
+
+    depth = 0
+    function_lines = []
+    for line in lines[start:]:
+        function_lines.append(line)
+        depth += line.count("{") - line.count("}")
+        if depth == 0:
+            return "\n".join(function_lines)
+    raise ValueError(f"shell function is not closed: {name}")
 
 
 class MetadataParsingTests(unittest.TestCase):
@@ -1671,12 +1684,12 @@ class ForwarderStatusApiTests(unittest.TestCase):
             app.os.environ.pop(key, None)
             self.assertTrue(app.forwarder_enabled())
 
-            for value in ("1", "true", "TRUE", "Yes", "oN"):
+            for value in ("1", "true", "TRUE", "Yes", "oN", " true ", " YES "):
                 with self.subTest(value=value):
                     app.os.environ[key] = value
                     self.assertTrue(app.forwarder_enabled())
 
-            for value in ("0", "false", "no", "off", "", "garbage"):
+            for value in ("0", "false", "no", "off", "", "   ", "garbage"):
                 with self.subTest(value=value):
                     app.os.environ[key] = value
                     self.assertFalse(app.forwarder_enabled())
@@ -1986,7 +1999,12 @@ class DockerComposeTests(unittest.TestCase):
         self.assertIn("tg-downloader-forwarder-supervisor", entrypoint)
         for script in (entrypoint, restart):
             self.assertIn("forwarder_enabled() {", script)
-            self.assertIn("${TGDL_FORWARDER_ENABLED:-1}", script)
+            self.assertIn("${TGDL_FORWARDER_ENABLED-1}", script)
+            self.assertNotIn("${TGDL_FORWARDER_ENABLED:-1}", script)
+            self.assertIn(
+                "sed 's/^[[:space:]]*//; s/[[:space:]]*$//'",
+                script,
+            )
             self.assertIn("tr '[:upper:]' '[:lower:]'", script)
             self.assertIn('case "$forwarder_flag" in', script)
             self.assertIn("1|true|yes|on) return 0 ;;", script)
@@ -2010,6 +2028,10 @@ class DockerComposeTests(unittest.TestCase):
             ("TRUE", True),
             ("Yes", True),
             ("oN", True),
+            (" true ", True),
+            (" YES ", True),
+            ("", False),
+            ("   ", False),
             ("0", False),
             ("false", False),
             ("garbage", False),
@@ -2031,6 +2053,32 @@ class DockerComposeTests(unittest.TestCase):
                         check=False,
                     )
                     self.assertEqual(result.returncode, 0 if expected else 1)
+
+    def test_extract_shell_function_uses_exact_declaration_and_matching_brace(self):
+        script = """not_forwarder_enabled() {
+  return 1
+}
+forwarder_enabled() {
+  if true; then
+    {
+      return 0
+    }
+  fi
+}
+exit 99
+"""
+
+        function = extract_shell_function(script, "forwarder_enabled")
+        result = subprocess.run(
+            ["sh", "-c", f"{function}\nforwarder_enabled"],
+            capture_output=True,
+            check=False,
+        )
+
+        self.assertEqual(function.splitlines()[0], "forwarder_enabled() {")
+        self.assertNotIn("not_forwarder_enabled", function)
+        self.assertNotIn("exit 99", function)
+        self.assertEqual(result.returncode, 0)
 
 
 class WorkerSkipTests(unittest.TestCase):
