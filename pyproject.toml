@@ -9,7 +9,7 @@ description = "Lightweight web UI and automation layer for Telegram downloads wi
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
-authors = [{ name = "tg-downloader-ui contributors" }]
+authors = [{ name = "ifox2046", email = "2927211+ifox2046@users.noreply.github.com" }]
 keywords = ["telegram", "tdl", "downloader", "openwrt"]
 classifiers = [
   "Development Status :: 3 - Alpha",

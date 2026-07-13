@@ -171,7 +171,7 @@ def control_text(version: str) -> str:
         f"Package: {PACKAGE_NAME}\n"
         f"Version: {version}\n"
         f"Architecture: {ARCHITECTURE}\n"
-        f"Maintainer: tg-downloader-ui contributors\n"
+        f"Maintainer: ifox2046\n"
         f"License: MIT\n"
         f"Depends: {', '.join(DEPENDS)}\n"
         f"Section: net\n"
@@ -185,7 +185,7 @@ def full_control_text(version: str) -> str:
         f"Package: {FULL_PACKAGE_NAME}\n"
         f"Version: {version}\n"
         f"Architecture: {FULL_ARCHITECTURE}\n"
-        f"Maintainer: tg-downloader-ui contributors\n"
+        f"Maintainer: ifox2046\n"
         f"License: MIT AND AGPL-3.0-only\n"
         f"Depends: {', '.join(DEPENDS)}\n"
         f"Conflicts: {PACKAGE_NAME}\n"
@@ -206,7 +206,7 @@ def istore_meta_json(version: str, release: int = META_RELEASE) -> dict[str, obj
         "name": META_APP_NAME,
         "title": "Telegram Downloads",
         "entry": "/cgi-bin/luci/admin/services/tg-downloader-ui",
-        "author": "tg-downloader-ui contributors",
+        "author": "ifox2046",
         "website": "https://github.com/iyear/tdl",
         "version": version,
         "release": release,
@@ -227,7 +227,7 @@ def meta_control_text(version: str, release: int = META_RELEASE) -> str:
         f"Package: {META_PACKAGE_NAME}\n"
         f"Version: {meta_version(version, release)}\n"
         f"Architecture: {ARCHITECTURE}\n"
-        f"Maintainer: tg-downloader-ui contributors\n"
+        f"Maintainer: ifox2046\n"
         f"License: MIT\n"
         f"Depends: {PACKAGE_NAME}\n"
         f"Provides: {META_PACKAGE_NAME}-any\n"
