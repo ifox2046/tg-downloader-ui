@@ -131,7 +131,7 @@ Minimum basic-download configuration:
 TGDL_HOST=0.0.0.0
 TGDL_PORT=9910
 TGDL_STATE_DIR=/etc/tg-downloader-ui
-TGDL_DOWNLOAD_DIR=/mnt/telegram-downloads
+TGDL_DOWNLOAD_DIR=/root/telegram-downloads
 TGDL_TDL_BIN=/usr/bin/tdl
 TGDL_TDL_STORAGE=type=bolt,path=/etc/tg-downloader-ui/tdl/data
 TGDL_TDL_LOG=/etc/tg-downloader-ui/tdl.log
@@ -155,9 +155,14 @@ TGDL_TELEGRAM_PROXY=
 Create directories:
 
 ```sh
-mkdir -p /etc/tg-downloader-ui/tdl /mnt/telegram-downloads
+mkdir -p /etc/tg-downloader-ui/tdl /root/telegram-downloads
 chmod 700 /etc/tg-downloader-ui
 ```
+
+Note: on many OpenWrt/iStoreOS images `/mnt` is only a small tmpfs until you
+mount a USB/HDD. Prefer `/root/telegram-downloads` for the package default, and
+change `TGDL_DOWNLOAD_DIR` to the real mount (for example
+`/mnt/sda1/telegram-downloads`) when external storage is available.
 
 ## 6. Start Web UI
 
@@ -194,7 +199,8 @@ In the setup page, fill:
 - Admin username: your choice.
 - Admin password: your choice.
 - Download directory: the exact absolute path from `TGDL_DOWNLOAD_DIR`, for
-  example `/mnt/telegram-downloads`.
+  example `/root/telegram-downloads` (or an external mount such as
+  `/mnt/sda1/telegram-downloads`).
 
 Forwarder fields can stay empty for basic download testing.
 
@@ -271,7 +277,7 @@ queued -> exporting -> downloading -> done
 Check files:
 
 ```sh
-find /mnt/telegram-downloads -type f | head
+find /root/telegram-downloads -type f | head
 ```
 
 Check logs:
@@ -495,7 +501,7 @@ Remove runtime data only if you no longer need it:
 
 ```sh
 rm -rf /etc/tg-downloader-ui
-rm -rf /mnt/telegram-downloads
+rm -rf /root/telegram-downloads
 ```
 
 ## 17. Final Acceptance Checklist
