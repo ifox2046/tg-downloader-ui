@@ -199,18 +199,26 @@ Build the OpenWRT `.ipk` package on a normal development machine:
 python scripts/build_openwrt_ipk.py
 ```
 
-Install it on OpenWRT:
+The builder produces three packages:
+
+- `tg-downloader-ui_0.1.0_all.ipk`: architecture-independent application package. Install the correct upstream `tdl` binary separately.
+- `tg-downloader-ui-full_0.1.0_x86_64.ipk`: complete x86_64 package containing the application and the unmodified upstream `tdl 0.20.3` binary.
+- `app-meta-tg-downloader-ui_0.1.0-r1_all.ipk`: iStore installed-app metadata.
+
+Install only one application package:
 
 ```sh
 opkg install tg-downloader-ui_0.1.0_all.ipk
+# or, on x86_64:
+opkg install tg-downloader-ui-full_0.1.0_x86_64.ipk
 ```
+
+The generic and full packages conflict because they own the same runtime files. The full package removes the separate `tdl` installation step, but it does not remove first-run administrator setup or Telegram authentication. Log in to your own Telegram account with the Web UI QR flow or with `tdl login` using the configured storage path.
 
 The package installs the web app, procd init script, environment template, and
 LuCI menu link. Telethon, qrcode, rsa, pyasn1, and pyaes are verified and
 prebundled in the IPK, so installing the package on the router does not run
-`pip` and can be completed offline. The IPK does not bundle `tdl`; install the
-correct upstream `tdl` binary for your router separately and keep it at
-`/usr/bin/tdl` or set `TGDL_TDL_BIN`.
+`pip` and can be completed offline.
 
 For the full manual testing checklist, see [docs/TESTING.md](docs/TESTING.md).
 For an OpenWRT-specific real-device checklist, see
@@ -243,5 +251,4 @@ python scripts/build_openwrt_ipk.py
 
 ## License
 
-This project's own code is MIT licensed. `iyear/tdl` is AGPL-3.0 and is used
-as a third-party downloader runtime. See [THIRD_PARTY.md](THIRD_PARTY.md).
+This project's own code is MIT licensed. The `tdl` binary bundled in Docker images and `tg-downloader-ui-full_0.1.0_x86_64.ipk` is an unmodified upstream `tdl 0.20.3` binary licensed under AGPL-3.0. The full IPK includes the upstream license and source/version notice under `/usr/share/licenses/tg-downloader-ui-full`. See [THIRD_PARTY.md](THIRD_PARTY.md).

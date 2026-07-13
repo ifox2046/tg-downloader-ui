@@ -157,13 +157,23 @@ tg-downloader-forwarder
 python scripts/build_openwrt_ipk.py
 ```
 
-在 OpenWrt 上安装：
+构建脚本会生成三个安装包：
+
+- `tg-downloader-ui_0.1.0_all.ipk`：与架构无关的应用包，需要另行安装与设备架构匹配的上游 `tdl`。
+- `tg-downloader-ui-full_0.1.0_x86_64.ipk`：x86_64 完整包，包含应用和未经修改的上游 `tdl 0.20.3` 二进制文件。
+- `app-meta-tg-downloader-ui_0.1.0-r1_all.ipk`：iStore 已安装应用元数据包。
+
+两个应用包只能选择一个安装：
 
 ```sh
 opkg install tg-downloader-ui_0.1.0_all.ipk
+# 或者在 x86_64 设备上：
+opkg install tg-downloader-ui-full_0.1.0_x86_64.ipk
 ```
 
-安装包包含 Web 应用、procd 初始化脚本、环境变量模板和 LuCI 菜单入口。Telethon、qrcode、rsa、pyasn1、pyaes 以及所需代理依赖会经过校验并预置在 IPK 中，因此路由器安装时不会运行 `pip`，可离线完成。IPK 不包含 `tdl`；请根据路由器架构单独安装上游 `tdl` 二进制文件，放置在 `/usr/bin/tdl`，或设置 `TGDL_TDL_BIN`。
+generic 与 full 包拥有相同的运行时文件，因此声明为互相冲突。full 包省去了单独安装 `tdl` 的步骤，但仍需完成首次管理员初始化，并通过 Web UI 二维码流程或使用相同存储路径执行 `tdl login` 登录自己的 Telegram 账户。
+
+安装包包含 Web 应用、procd 初始化脚本、环境变量模板和 LuCI 菜单入口。Telethon、qrcode、rsa、pyasn1、pyaes 以及所需代理依赖会经过校验并预置在 IPK 中，因此路由器安装时不会运行 `pip`，可离线完成。
 
 完整手工测试清单请参阅 [docs/TESTING.md](docs/TESTING.md)，OpenWrt/iStoreOS 真机测试清单请参阅 [docs/OPENWRT_TESTING.md](docs/OPENWRT_TESTING.md)。
 
@@ -193,4 +203,4 @@ python scripts/build_openwrt_ipk.py
 
 ## 许可证
 
-本项目自身代码采用 MIT 许可证。`iyear/tdl` 是采用 AGPL-3.0 的第三方下载运行时，详情请参阅 [THIRD_PARTY.md](THIRD_PARTY.md)。
+本项目自身代码采用 MIT 许可证。Docker 镜像和 `tg-downloader-ui-full_0.1.0_x86_64.ipk` 内置的 `tdl` 是未经修改的上游 `tdl 0.20.3` 二进制文件，采用 AGPL-3.0 许可证。full IPK 会在 `/usr/share/licenses/tg-downloader-ui-full` 中安装上游许可证及源码/版本声明。详情参阅 [THIRD_PARTY.md](THIRD_PARTY.md)。

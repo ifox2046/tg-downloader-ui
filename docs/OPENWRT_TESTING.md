@@ -45,9 +45,10 @@ If you plan to use the optional forwarder, also make sure Python can install or
 run `telethon`. On small routers, prefer testing forwarder on a larger OpenWRT
 target or use Docker/server deployment instead.
 
-## 3. Install tdl
+## 3. Install tdl (generic-package path)
 
-Install `tdl` from the upstream project:
+When testing the generic `tg-downloader-ui_0.1.0_all.ipk` package, install
+`tdl` separately from the upstream project:
 
 ```sh
 TDL_VERSION=0.20.3
@@ -77,11 +78,33 @@ On your development machine:
 python scripts/build_openwrt_ipk.py
 ```
 
-Upload and install the generated package:
+For x86_64 iStoreOS/OpenWrt, the full package includes `tdl 0.20.3`; skip the separate `tdl` installation section when testing it.
 
 ```powershell
-scp .\dist\openwrt\tg-downloader-ui_0.1.0_all.ipk root@OPENWRT_IP:/tmp/
-ssh root@OPENWRT_IP "opkg install /tmp/tg-downloader-ui_0.1.0_all.ipk"
+$target = "$env:OPENWRT_TEST_USER@$env:OPENWRT_TEST_HOST"
+scp .\dist\openwrt\tg-downloader-ui-full_0.1.0_x86_64.ipk "${target}:/tmp/"
+ssh $target "opkg install /tmp/tg-downloader-ui-full_0.1.0_x86_64.ipk"
+```
+
+The full package still requires first-run administrator setup and Telegram authentication.
+
+Expected full-package checks:
+
+```sh
+opkg status tg-downloader-ui-full
+tdl version
+tg-downloader-ui --check
+test -f /usr/share/licenses/tg-downloader-ui-full/tdl-AGPL-3.0.txt
+test -f /usr/share/licenses/tg-downloader-ui-full/tdl-NOTICE.txt
+```
+
+Generic-package path: upload and install the architecture-independent package
+(after completing the separate `tdl` installation section above):
+
+```powershell
+$target = "$env:OPENWRT_TEST_USER@$env:OPENWRT_TEST_HOST"
+scp .\dist\openwrt\tg-downloader-ui_0.1.0_all.ipk "${target}:/tmp/"
+ssh $target "opkg install /tmp/tg-downloader-ui_0.1.0_all.ipk"
 ```
 
 Expected:
