@@ -17,14 +17,25 @@ from pathlib import Path, PurePosixPath
 
 
 PACKAGE_NAME = "tg-downloader-ui"
+META_PACKAGE_NAME = "app-meta-tg-downloader-ui"
+META_APP_NAME = "tg-downloader-ui"
 ARCHITECTURE = "all"
 DEPENDS = ["python3", "python3-sqlite3", "ca-bundle"]
+META_RELEASE = 1
 
+
+# Ship under /usr/lib so opkg extraction always lands on a normal overlay path.
+# /opt is still preferred as a compatibility symlink when that directory works
+# (plain OpenWrt / healthy iStoreOS). Broken /opt overlays (seen with some
+# iStoreOS Docker data roots) must not prevent installation.
+APP_INSTALL_ROOT = "./usr/lib/tg-downloader-ui"
+APP_RUNTIME_HOME = "/usr/lib/tg-downloader-ui"
+APP_COMPAT_LINK = "/opt/tg-downloader-ui"
 
 DATA_FILES = [
-    ("tg_downloader_ui/app.py", "./opt/tg-downloader-ui/app.py", 0o755),
-    ("tg_downloader_ui/forwarder.py", "./opt/tg-downloader-ui/forwarder.py", 0o755),
-    ("tg_downloader_ui/sources.py", "./opt/tg-downloader-ui/sources.py", 0o644),
+    ("tg_downloader_ui/app.py", f"{APP_INSTALL_ROOT}/app.py", 0o755),
+    ("tg_downloader_ui/forwarder.py", f"{APP_INSTALL_ROOT}/forwarder.py", 0o755),
+    ("tg_downloader_ui/sources.py", f"{APP_INSTALL_ROOT}/sources.py", 0o644),
     ("tg-downloader-ui.init", "./etc/init.d/tg-downloader-ui", 0o755),
     ("openwrt/tg-downloader-ui.env.example", "./etc/tg-downloader-ui.env.example", 0o644),
     (
@@ -45,12 +56,12 @@ DATA_FILES = [
 ]
 
 DATA_DIRS = [
-    "./opt",
-    "./opt/tg-downloader-ui",
-    "./opt/tg-downloader-ui/vendor",
     "./etc",
     "./etc/init.d",
     "./usr",
+    "./usr/lib",
+    "./usr/lib/tg-downloader-ui",
+    "./usr/lib/tg-downloader-ui/vendor",
     "./usr/share",
     "./usr/share/licenses",
     "./usr/share/licenses/tg-downloader-ui",
@@ -66,14 +77,28 @@ DATA_DIRS = [
 ]
 
 
-POSTINST = """#!/bin/sh
+POSTINST = f"""#!/bin/sh
 set -e
+
+APP_HOME="{APP_RUNTIME_HOME}"
+COMPAT_LINK="{APP_COMPAT_LINK}"
 
 mkdir -p /etc/tg-downloader-ui /etc/tg-downloader-ui/tdl
 
 if [ ! -f /etc/tg-downloader-ui.env ]; then
 \tcp /etc/tg-downloader-ui.env.example /etc/tg-downloader-ui.env
 \tchmod 600 /etc/tg-downloader-ui.env
+fi
+
+# Best-effort /opt compatibility symlink. Never fail install if /opt is broken
+# (common on some iStoreOS Docker layouts).
+if [ -d "$APP_HOME" ]; then
+\tif [ -L "$COMPAT_LINK" ]; then
+\t\tln -sfn "$APP_HOME" "$COMPAT_LINK" 2>/dev/null || true
+\telif [ ! -e "$COMPAT_LINK" ]; then
+\t\tmkdir -p /opt 2>/dev/null || true
+\t\tln -s "$APP_HOME" "$COMPAT_LINK" 2>/dev/null || true
+\tfi
 fi
 
 chmod +x /etc/init.d/tg-downloader-ui
@@ -87,12 +112,21 @@ exit 0
 """
 
 
-PRERM = """#!/bin/sh
+PRERM = f"""#!/bin/sh
 set -e
+
+APP_HOME="{APP_RUNTIME_HOME}"
+COMPAT_LINK="{APP_COMPAT_LINK}"
 
 if [ "$1" = "remove" ]; then
 \t/etc/init.d/tg-downloader-ui stop >/dev/null 2>&1 || true
 \t/etc/init.d/tg-downloader-ui disable >/dev/null 2>&1 || true
+\tif [ -L "$COMPAT_LINK" ]; then
+\t\tlink_target="$(readlink "$COMPAT_LINK" 2>/dev/null || true)"
+\t\tif [ "$link_target" = "$APP_HOME" ]; then
+\t\t\trm -f "$COMPAT_LINK" 2>/dev/null || true
+\t\tfi
+\tfi
 fi
 
 exit 0
@@ -132,6 +166,79 @@ def control_text(version: str) -> str:
     )
 
 
+def meta_version(version: str, release: int = META_RELEASE) -> str:
+    return f"{version}-r{release}"
+
+
+def istore_meta_json(version: str, release: int = META_RELEASE) -> dict[str, object]:
+    """iStore installed-app metadata consumed from /usr/lib/opkg/meta/*.json."""
+    return {
+        "name": META_APP_NAME,
+        "title": "Telegram Downloads",
+        "entry": "/cgi-bin/luci/admin/services/tg-downloader-ui",
+        "author": "tg-downloader-ui contributors",
+        "website": "https://github.com/iyear/tdl",
+        "version": version,
+        "release": release,
+        "arch": ["all"],
+        "description": "基于 tdl 的 Telegram 下载 Web 控制台与任务管理。",
+        "description_en": (
+            "Web UI and automation layer for Telegram downloads with tdl."
+        ),
+        "tags": ["net", "tool"],
+        # Only the main app package. Shared runtime deps stay on the main package
+        # so iStore uninstall does not remove packages used by other software.
+        "depends": [PACKAGE_NAME],
+    }
+
+
+def meta_control_text(version: str, release: int = META_RELEASE) -> str:
+    return (
+        f"Package: {META_PACKAGE_NAME}\n"
+        f"Version: {meta_version(version, release)}\n"
+        f"Architecture: {ARCHITECTURE}\n"
+        f"Maintainer: tg-downloader-ui contributors\n"
+        f"License: MIT\n"
+        f"Depends: {PACKAGE_NAME}\n"
+        f"Provides: {META_PACKAGE_NAME}-any\n"
+        f"Section: meta\n"
+        f"Priority: optional\n"
+        f"Description: iStore metadata for {PACKAGE_NAME}.\n"
+    )
+
+
+def meta_control_tar(version: str, release: int = META_RELEASE) -> bytes:
+    # Keep scripts no-op friendly on plain OpenWrt without OpenWrt package helpers.
+    postinst = "#!/bin/sh\nexit 0\n"
+    prerm = "#!/bin/sh\nexit 0\n"
+    return tar_gz(
+        [
+            ("./control", meta_control_text(version, release).encode("utf-8"), 0o644),
+            ("./postinst", postinst.encode("utf-8"), 0o755),
+            ("./prerm", prerm.encode("utf-8"), 0o755),
+        ]
+    )
+
+
+def meta_data_tar(version: str, release: int = META_RELEASE) -> bytes:
+    payload = (
+        json.dumps(istore_meta_json(version, release), ensure_ascii=False, indent=2)
+        + "\n"
+    ).encode("utf-8")
+    entries: list[tuple[str, bytes | None, int]] = [
+        ("./usr", None, 0o755),
+        ("./usr/lib", None, 0o755),
+        ("./usr/lib/opkg", None, 0o755),
+        ("./usr/lib/opkg/meta", None, 0o755),
+        (
+            f"./usr/lib/opkg/meta/{META_APP_NAME}.json",
+            payload,
+            0o644,
+        ),
+    ]
+    return tar_gz(with_parent_directories(entries))
+
+
 def gzip_bytes(payload: bytes) -> bytes:
     out = io.BytesIO()
     with gzip.GzipFile(fileobj=out, mode="wb", mtime=0) as gz:
@@ -158,6 +265,34 @@ def tar_gz(entries: list[tuple[str, bytes | None, int]]) -> bytes:
                 info.size = len(content)
                 tar.addfile(info, io.BytesIO(content))
     return gzip_bytes(raw.getvalue())
+
+
+def with_parent_directories(
+    entries: list[tuple[str, bytes | None, int]],
+) -> list[tuple[str, bytes | None, int]]:
+    """Ensure every file path has explicit directory members.
+
+    Older OpenWrt/iStoreOS opkg extractors do not auto-create missing parents
+    when unpacking data.tar.gz, so nested vendor trees fail with wfopen errors.
+    """
+    dir_modes: dict[str, int] = {}
+    file_entries: list[tuple[str, bytes, int]] = []
+    for name, content, mode in entries:
+        normalized = name.rstrip("/")
+        if content is None:
+            dir_modes.setdefault(normalized, mode)
+            continue
+        file_entries.append((normalized, content, mode))
+        leading_dot_slash = normalized.startswith("./")
+        for parent in PurePosixPath(normalized).parents:
+            text = parent.as_posix()
+            if text in (".", ""):
+                continue
+            if leading_dot_slash and not text.startswith("./"):
+                text = f"./{text}"
+            dir_modes.setdefault(text, 0o755)
+    ordered_dirs = sorted(dir_modes.items(), key=lambda item: (item[0].count("/"), item[0]))
+    return [(name, None, mode) for name, mode in ordered_dirs] + file_entries
 
 
 def control_tar(version: str) -> bytes:
@@ -233,7 +368,11 @@ def vendor_entries(
             if path.is_absolute() or ".." in path.parts:
                 raise ValueError(f"unsafe vendor target: {relative}")
             entries.append(
-                (f"./opt/tg-downloader-ui/vendor/{path.as_posix()}", content, 0o644)
+                (
+                    f"{APP_INSTALL_ROOT}/vendor/{path.as_posix()}",
+                    content,
+                    0o644,
+                )
             )
             copied += 1
         if not copied:
@@ -261,7 +400,7 @@ def data_tar(root: Path) -> bytes:
             raise FileNotFoundError(path)
         entries.append((target, path.read_bytes(), mode))
     entries.extend(vendor_entries(root))
-    return tar_gz(entries)
+    return tar_gz(with_parent_directories(entries))
 
 
 def write_outer_tar(path: Path, members: list[tuple[str, bytes]]) -> None:
@@ -291,6 +430,32 @@ def build_ipk(
     return output_path
 
 
+def build_meta_ipk(
+    root: Path,
+    output_dir: Path,
+    version: str | None = None,
+    architecture: str = ARCHITECTURE,
+    release: int = META_RELEASE,
+) -> Path:
+    """Build the iStore app-meta package that powers the Installed apps list."""
+    if architecture != ARCHITECTURE:
+        raise ValueError("only architecture 'all' is supported")
+    resolved_version = version or project_version(root)
+    meta_ver = meta_version(resolved_version, release)
+    output_path = (
+        output_dir / f"{META_PACKAGE_NAME}_{meta_ver}_{architecture}.ipk"
+    )
+    write_outer_tar(
+        output_path,
+        [
+            ("debian-binary", b"2.0\n"),
+            ("data.tar.gz", meta_data_tar(resolved_version, release)),
+            ("control.tar.gz", meta_control_tar(resolved_version, release)),
+        ],
+    )
+    return output_path
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Build OpenWRT .ipk package")
     parser.add_argument(
@@ -306,10 +471,19 @@ def main() -> int:
         help="directory for the generated .ipk",
     )
     parser.add_argument("--version", default=None, help="override package version")
+    parser.add_argument(
+        "--skip-meta",
+        action="store_true",
+        help="do not build the iStore app-meta package",
+    )
     args = parser.parse_args()
 
-    ipk = build_ipk(args.root.resolve(), args.output_dir, version=args.version)
+    root = args.root.resolve()
+    ipk = build_ipk(root, args.output_dir, version=args.version)
     print(ipk)
+    if not args.skip_meta:
+        meta_ipk = build_meta_ipk(root, args.output_dir, version=args.version)
+        print(meta_ipk)
     return 0
 
 

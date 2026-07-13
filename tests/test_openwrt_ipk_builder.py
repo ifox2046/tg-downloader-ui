@@ -81,6 +81,9 @@ def fake_vendor_lock_and_payloads():
         ("rsa", "4.9.1", "wheel", "rsa/", "", "rsa-4.9.1.dist-info/LICENSE"),
         ("pyasn1", "0.6.1", "wheel", "pyasn1/", "", "pyasn1-0.6.1.dist-info/LICENSE.rst"),
         ("pyaes", "1.6.1", "tar.gz", "pyaes-1.6.1/pyaes/", "pyaes-1.6.1/", "pyaes-1.6.1/LICENSE.txt"),
+        ("python_socks", "2.8.2", "wheel", "python_socks/", "", "python_socks-2.8.2.dist-info/licenses/LICENSE.txt"),
+        ("async_timeout", "5.0.1", "wheel", "async_timeout/", "", "async_timeout-5.0.1.dist-info/LICENSE"),
+        ("socks", "1.7.1", "wheel", "socks/", "", "socks-1.7.1.dist-info/LICENSE"),
     ]
     packages = []
     payloads = {}
@@ -109,11 +112,20 @@ def fake_vendor_lock_and_payloads():
 
 def fake_vendor_entries():
     entries = []
-    for package in ["telethon", "qrcode", "rsa", "pyasn1", "pyaes"]:
+    for package in [
+        "telethon",
+        "qrcode",
+        "rsa",
+        "pyasn1",
+        "pyaes",
+        "python_socks",
+        "async_timeout",
+        "socks",
+    ]:
         entries.extend(
             [
                 (
-                    f"./opt/tg-downloader-ui/vendor/{package}/__init__.py",
+                    f"./usr/lib/tg-downloader-ui/vendor/{package}/__init__.py",
                     b"VERSION = 'test'\n",
                     0o644,
                 ),
@@ -124,6 +136,14 @@ def fake_vendor_entries():
                 ),
             ]
         )
+    # Nested vendor path used to regress missing tar directory members.
+    entries.append(
+        (
+            "./usr/lib/tg-downloader-ui/vendor/pyasn1/codec/ber/decoder.py",
+            b"decoder = object()\n",
+            0o644,
+        )
+    )
     return entries
 
 
@@ -140,9 +160,18 @@ class OpenWrtIpkBuilderTests(unittest.TestCase):
             entries = builder.vendor_entries(root, fetcher=payloads.__getitem__)
 
         names = {name for name, _, _ in entries}
-        for package in ["telethon", "qrcode", "rsa", "pyasn1", "pyaes"]:
+        for package in [
+            "telethon",
+            "qrcode",
+            "rsa",
+            "pyasn1",
+            "pyaes",
+            "python_socks",
+            "async_timeout",
+            "socks",
+        ]:
             self.assertIn(
-                f"./opt/tg-downloader-ui/vendor/{package}/__init__.py", names
+                f"./usr/lib/tg-downloader-ui/vendor/{package}/__init__.py", names
             )
             self.assertIn(
                 f"./usr/share/licenses/tg-downloader-ui/{package}-LICENSE", names
@@ -193,34 +222,130 @@ class OpenWrtIpkBuilderTests(unittest.TestCase):
             self.assertIn("[ ! -f /etc/tg-downloader-ui.env ]", postinst)
             self.assertNotIn("pip install", postinst)
             self.assertIn("/etc/init.d/tg-downloader-ui enable", postinst)
+            self.assertIn("/usr/lib/tg-downloader-ui", postinst)
+            self.assertIn("/opt/tg-downloader-ui", postinst)
+            self.assertIn("ln -s", postinst)
 
             data_tar = tarfile.open(fileobj=io.BytesIO(members["data.tar.gz"]), mode="r:gz")
             data_names = set(data_tar.getnames())
             expected = {
-                "./opt/tg-downloader-ui/app.py",
-                "./opt/tg-downloader-ui/forwarder.py",
-                "./opt/tg-downloader-ui/sources.py",
+                "./usr/lib/tg-downloader-ui/app.py",
+                "./usr/lib/tg-downloader-ui/forwarder.py",
+                "./usr/lib/tg-downloader-ui/sources.py",
                 "./etc/init.d/tg-downloader-ui",
                 "./etc/tg-downloader-ui.env.example",
                 "./usr/share/luci/menu.d/luci-app-tg-downloader-ui.json",
                 "./usr/share/rpcd/acl.d/luci-app-tg-downloader-ui.json",
                 "./www/luci-static/resources/view/tg-downloader-ui/link.js",
             }
-            for package in ["telethon", "qrcode", "rsa", "pyasn1", "pyaes"]:
+            for package in [
+                "telethon",
+                "qrcode",
+                "rsa",
+                "pyasn1",
+                "pyaes",
+                "python_socks",
+                "async_timeout",
+                "socks",
+            ]:
                 expected.add(
-                    f"./opt/tg-downloader-ui/vendor/{package}/__init__.py"
+                    f"./usr/lib/tg-downloader-ui/vendor/{package}/__init__.py"
                 )
                 expected.add(
                     f"./usr/share/licenses/tg-downloader-ui/{package}-LICENSE"
                 )
             self.assertTrue(expected.issubset(data_names))
+            nested_dirs = {
+                "./usr/lib/tg-downloader-ui/vendor/pyasn1",
+                "./usr/lib/tg-downloader-ui/vendor/pyasn1/codec",
+                "./usr/lib/tg-downloader-ui/vendor/pyasn1/codec/ber",
+            }
+            self.assertTrue(nested_dirs.issubset(data_names))
+            for directory in nested_dirs:
+                member = data_tar.getmember(directory)
+                self.assertTrue(member.isdir())
+                self.assertEqual(member.mode, 0o755)
+            self.assertIn(
+                "./usr/lib/tg-downloader-ui/vendor/pyasn1/codec/ber/decoder.py",
+                data_names,
+            )
             self.assertEqual(data_tar.getmember("./etc/init.d/tg-downloader-ui").mode, 0o755)
-            self.assertEqual(data_tar.getmember("./opt/tg-downloader-ui/app.py").mode, 0o755)
+            self.assertEqual(data_tar.getmember("./usr/lib/tg-downloader-ui/app.py").mode, 0o755)
             forwarder_payload = data_tar.extractfile(
-                "./opt/tg-downloader-ui/forwarder.py"
+                "./usr/lib/tg-downloader-ui/forwarder.py"
             ).read().decode("utf-8")
             self.assertIn("def is_video_document", forwarder_payload)
             self.assertIn("def video_document_from_message", forwarder_payload)
+
+    def test_with_parent_directories_adds_missing_nested_dirs(self):
+        builder = load_builder()
+        entries = [
+            ("./usr/lib/tg-downloader-ui/vendor", None, 0o755),
+            (
+                "./usr/lib/tg-downloader-ui/vendor/pyasn1/codec/ber/decoder.py",
+                b"decoder = object()\n",
+                0o644,
+            ),
+        ]
+        expanded = builder.with_parent_directories(entries)
+        names = [name for name, _, _ in expanded]
+        self.assertEqual(
+            names,
+            [
+                "./usr",
+                "./usr/lib",
+                "./usr/lib/tg-downloader-ui",
+                "./usr/lib/tg-downloader-ui/vendor",
+                "./usr/lib/tg-downloader-ui/vendor/pyasn1",
+                "./usr/lib/tg-downloader-ui/vendor/pyasn1/codec",
+                "./usr/lib/tg-downloader-ui/vendor/pyasn1/codec/ber",
+                "./usr/lib/tg-downloader-ui/vendor/pyasn1/codec/ber/decoder.py",
+            ],
+        )
+        self.assertIsNone(expanded[0][1])
+        self.assertEqual(expanded[-1][1], b"decoder = object()\n")
+
+    def test_build_meta_ipk_registers_istore_installed_metadata(self):
+        root = Path(__file__).resolve().parents[1]
+        builder = load_builder()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            ipk_path = builder.build_meta_ipk(root, Path(tmp), version="0.1.0")
+
+            self.assertEqual(
+                ipk_path.name, "app-meta-tg-downloader-ui_0.1.0-r1_all.ipk"
+            )
+            members = read_outer_tar_members(ipk_path)
+            self.assertEqual(
+                set(members), {"debian-binary", "control.tar.gz", "data.tar.gz"}
+            )
+
+            control_tar = tarfile.open(
+                fileobj=io.BytesIO(members["control.tar.gz"]), mode="r:gz"
+            )
+            control = control_tar.extractfile("./control").read().decode("utf-8")
+            self.assertIn("Package: app-meta-tg-downloader-ui", control)
+            self.assertIn("Version: 0.1.0-r1", control)
+            self.assertIn("Depends: tg-downloader-ui", control)
+            self.assertIn("Section: meta", control)
+            self.assertNotIn("luci-app-store", control)
+            self.assertNotIn("python3", control)
+
+            data_tar = tarfile.open(
+                fileobj=io.BytesIO(members["data.tar.gz"]), mode="r:gz"
+            )
+            meta_path = "./usr/lib/opkg/meta/tg-downloader-ui.json"
+            self.assertIn(meta_path, set(data_tar.getnames()))
+            meta = json.loads(data_tar.extractfile(meta_path).read().decode("utf-8"))
+            self.assertEqual(meta["name"], "tg-downloader-ui")
+            self.assertEqual(meta["title"], "Telegram Downloads")
+            self.assertEqual(
+                meta["entry"], "/cgi-bin/luci/admin/services/tg-downloader-ui"
+            )
+            self.assertEqual(meta["depends"], ["tg-downloader-ui"])
+            self.assertEqual(meta["version"], "0.1.0")
+            self.assertEqual(meta["release"], 1)
+            self.assertIn("net", meta["tags"])
 
     def test_luci_page_controls_openwrt_service(self):
         root = Path(__file__).resolve().parents[1]
@@ -269,9 +394,10 @@ class OpenWrtIpkBuilderTests(unittest.TestCase):
             init_script.count("set -a; [ -f /etc/tg-downloader-ui.env ]"),
             1,
         )
-        self.assertEqual(
-            init_script.count('PYTHONPATH="/opt/tg-downloader-ui/vendor'), 1
-        )
+        self.assertIn("app_home() {", init_script)
+        self.assertIn("/usr/lib/tg-downloader-ui/app.py", init_script)
+        self.assertIn("/opt/tg-downloader-ui/app.py", init_script)
+        self.assertIn('PYTHONPATH="${TGDL_APP_HOME}/vendor', init_script)
         self.assertEqual(init_script.count("procd_set_param env"), 1)
         self.assertEqual(init_script.count("\tset_runtime_env\n"), 2)
         self.assertIn('TGDL_STATE_DIR="${TGDL_STATE_DIR:-/etc/tg-downloader-ui}"', init_script)
@@ -295,11 +421,11 @@ class OpenWrtIpkBuilderTests(unittest.TestCase):
         self.assertNotIn('[ "${TGDL_FORWARDER_ENABLED:-1}" = "1" ]', init_script)
         self.assertIn("TGDL_FORWARDER_ENABLED=1", env_example)
         self.assertIn(
-            "procd_set_param command /usr/bin/python3 /opt/tg-downloader-ui/app.py",
+            'procd_set_param command /usr/bin/python3 "${TGDL_APP_HOME}/app.py"',
             init_script,
         )
         self.assertIn(
-            "procd_set_param command /usr/bin/python3 /opt/tg-downloader-ui/forwarder.py",
+            'procd_set_param command /usr/bin/python3 "${TGDL_APP_HOME}/forwarder.py"',
             init_script,
         )
 

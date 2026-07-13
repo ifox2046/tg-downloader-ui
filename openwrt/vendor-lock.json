@@ -49,6 +49,36 @@
       "package_prefix": "pyaes-1.6.1/pyaes/",
       "strip_prefix": "pyaes-1.6.1/",
       "license_member": "pyaes-1.6.1/LICENSE.txt"
+    },
+    {
+      "name": "python-socks",
+      "version": "2.8.2",
+      "archive": "wheel",
+      "url": "https://files.pythonhosted.org/packages/3d/18/23b981b1cf58c1e7b7e36fa1392daf12878b6a3c26c5e4248601647a6d09/python_socks-2.8.2-py3-none-any.whl",
+      "sha256": "7cf785d0631e0659384a773b3c402bc22cccdc23894ba1d65f8524748ace1193",
+      "package_prefix": "python_socks/",
+      "strip_prefix": "",
+      "license_member": "python_socks-2.8.2.dist-info/licenses/LICENSE.txt"
+    },
+    {
+      "name": "async-timeout",
+      "version": "5.0.1",
+      "archive": "wheel",
+      "url": "https://files.pythonhosted.org/packages/fe/ba/e2081de779ca30d473f21f5b30e0e737c438205440784c7dfc81efc2b029/async_timeout-5.0.1-py3-none-any.whl",
+      "sha256": "39e3809566ff85354557ec2398b55e096c8364bacac9405a7a1fa429e77fe76c",
+      "package_prefix": "async_timeout/",
+      "strip_prefix": "",
+      "license_member": "async_timeout-5.0.1.dist-info/LICENSE"
+    },
+    {
+      "name": "PySocks",
+      "version": "1.7.1",
+      "archive": "wheel",
+      "url": "https://files.pythonhosted.org/packages/8d/59/b4572118e098ac8e46e399a1dd0f2d85403ce8bbaad9ec79373ed6badaf9/PySocks-1.7.1-py3-none-any.whl",
+      "sha256": "2725bd0a9925919b9b51739eea5f9e2bae91e83288108a9ad338b2e3a4435ee5",
+      "package_prefix": "socks",
+      "strip_prefix": "",
+      "license_member": "PySocks-1.7.1.dist-info/LICENSE"
     }
   ]
 }
