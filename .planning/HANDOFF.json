@@ -1,8 +1,8 @@
 {
   "version": "1.0",
-  "timestamp": "2026-07-11T16:28:32+08:00",
+  "timestamp": "2026-07-13T18:40:00+08:00",
   "phase": "implementation",
-  "phase_name": "true-pause-resume",
+  "phase_name": "openwrt-istoreos-packaging",
   "phase_dir": ".planning",
   "plan": 1,
   "task": 4,
@@ -11,27 +11,27 @@
   "completed_tasks": [
     {
       "id": 1,
-      "name": "Diagnose tdl restart-from-zero behavior",
+      "name": "Fix Telethon authenticated proxy parsing and tdl proxy fallback",
       "status": "done",
-      "commit": "9e4e14c"
+      "commit": "34a2397"
     },
     {
       "id": 2,
-      "name": "Implement SIGSTOP/SIGCONT live pause and resume with process-level tests",
+      "name": "Harden IPK packaging, vendor proxy deps, and add iStore meta package",
       "status": "done",
-      "commit": "4b4cb74"
+      "commit": "c49135d"
     },
     {
       "id": 3,
-      "name": "Verify Docker same-PID and byte-continuity behavior",
+      "name": "Install under /usr/lib with /opt symlink fallback for broken overlays",
       "status": "done",
-      "commit": "4b4cb74"
+      "commit": "950a361"
     },
     {
       "id": 4,
-      "name": "Verify OpenWrt 23.05 and 24.10 and update documentation",
+      "name": "Change default download dir off /mnt tmpfs and document OpenWrt/iStoreOS guidance",
       "status": "done",
-      "commit": "4b4cb74"
+      "commit": "8b8e8a5"
     }
   ],
   "remaining_tasks": [],
@@ -39,22 +39,27 @@
   "human_actions_pending": [],
   "decisions": [
     {
-      "decision": "Use SIGSTOP and SIGCONT on the worker-owned Popen object for live pause and continue.",
-      "rationale": "This preserves the same process, open file descriptor, and byte offset while avoiding stale or reused database PID signaling.",
+      "decision": "Ship one main IPK plus an optional app-meta package for iStore Installed list.",
+      "rationale": "Avoid separate OpenWrt vs iStoreOS app builds while remaining compatible with plain OpenWrt.",
       "phase": "implementation"
     },
     {
-      "decision": "Keep tdl --continue only for completed-item recovery after failed or canceled runs.",
-      "rationale": "tdl 0.20.3 does not resume byte ranges inside a partially downloaded single file.",
+      "decision": "Install application files under /usr/lib/tg-downloader-ui and only create /opt symlink when writable.",
+      "rationale": "Some iStoreOS Docker setups break /opt overlay visibility, which made opkg appear installed while app files were missing.",
       "phase": "implementation"
     },
     {
-      "decision": "Continue a stopped child before SIGINT during cancel or service shutdown.",
-      "rationale": "A stopped process cannot handle SIGINT until it receives SIGCONT.",
+      "decision": "Default TGDL_DOWNLOAD_DIR to /root/telegram-downloads on OpenWrt/iStoreOS.",
+      "rationale": "/mnt is frequently a tiny tmpfs until external storage is mounted and caused no-space download failures.",
+      "phase": "implementation"
+    },
+    {
+      "decision": "Parse Telegram proxy URLs into Telethon dict form including username/password.",
+      "rationale": "Authenticated HTTP proxies returned 407 when credentials were dropped from the proxy tuple.",
       "phase": "implementation"
     }
   ],
   "uncommitted_files": [],
-  "next_action": "Review commit 4b4cb74, then push or package it for release if desired.",
-  "context_notes": "Implementation is complete. Local unittest discovery passed 112 tests with two Windows-only POSIX permission skips. Docker E2E proved PID 21 remained unchanged, bytes stayed fixed while stopped, and increased after continue. OpenWrt 23.05.6 and 24.10.2 process-level E2E tests passed. The two Docker test containers are healthy on ports 19910 and 19911 and all six named volumes remain intact."
+  "next_action": "Optional: rebuild release IPKs with python scripts/build_openwrt_ipk.py --output-dir dist/openwrt and push commits if publishing.",
+  "context_notes": "Verified on iStoreOS 22.03.7 at 192.168.101.130. Telethon CONNECT_OK through authenticated proxy after proxy-dict fix. tdl 0.20.3 installed separately at /usr/bin/tdl. Package installs under /usr/lib/tg-downloader-ui. Large downloads may still see intermittent MTProto EOF through unstable proxies; current download path on the test VM is /media/tg-download on /dev/sda4. Do not delete Docker named volumes on fox@192.168.101.128 without approval."
 }
