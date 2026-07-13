@@ -111,6 +111,26 @@ class ProgressParsingTests(unittest.TestCase):
         self.assertEqual(progress["flood_wait_seconds"], 620)
 
 
+class TelegramProxyParsingTests(unittest.TestCase):
+    def test_parse_telegram_proxy_url_keeps_credentials(self):
+        self.assertEqual(
+            app.parse_telegram_proxy_url("http://proxy:proxy@10.72.40.221:7890"),
+            {
+                "proxy_type": "http",
+                "addr": "10.72.40.221",
+                "port": 7890,
+                "username": "proxy",
+                "password": "proxy",
+                "rdns": True,
+            },
+        )
+
+    def test_parse_telegram_proxy_url_none_and_invalid(self):
+        self.assertIsNone(app.parse_telegram_proxy_url(""))
+        with self.assertRaisesRegex(RuntimeError, "Telegram proxy must be"):
+            app.parse_telegram_proxy_url("ftp://127.0.0.1:1080")
+
+
 class CommandConstructionTests(unittest.TestCase):
     def test_tdl_base_args_uses_tdl_specific_proxy_before_global_proxy(self):
         args = app.build_tdl_base_args(
@@ -135,6 +155,34 @@ class CommandConstructionTests(unittest.TestCase):
         )
 
         self.assertNotIn("--proxy", args)
+
+    def test_tdl_base_args_falls_back_to_telegram_config_proxy(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state_dir = Path(tmp)
+            (state_dir / "config.json").write_text(
+                json.dumps(
+                    {
+                        "telegram": {
+                            "proxy": "http://proxy:proxy@10.0.0.1:7890",
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with mock.patch.object(app, "STATE_DIR", state_dir), mock.patch.dict(
+                os.environ, {"TGDL_TDL_PROXY": "", "TGDL_PROXY": ""}, clear=False
+            ), mock.patch.object(app, "GLOBAL_PROXY", ""):
+                args = app.build_tdl_base_args(
+                    tdl_bin="/usr/local/bin/tdl",
+                    storage="type=bolt,path=/data/tdl",
+                    global_proxy="",
+                    tdl_proxy=None,
+                )
+
+        self.assertIn("--proxy", args)
+        self.assertEqual(
+            args[args.index("--proxy") + 1], "http://proxy:proxy@10.0.0.1:7890"
+        )
 
     def test_shutdown_stopped_process_continues_before_sigint(self):
         continue_signal = getattr(app, "PROCESS_CONTINUE_SIGNAL", None) or 1002

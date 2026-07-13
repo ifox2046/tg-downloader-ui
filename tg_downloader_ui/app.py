@@ -479,6 +479,27 @@ def parse_message_ids(raw: Any) -> list[int]:
     return ids
 
 
+def load_configured_telegram_proxy(state_dir: Path | None = None) -> str:
+    """Read telegram.proxy from config.json when env proxy vars are empty.
+
+    The Web UI stores Telegram proxy in config.json. Telethon auth already uses
+    that value, but tdl historically only looked at TGDL_TDL_PROXY / TGDL_PROXY.
+    Falling back here keeps login/download on the same proxy without forcing
+    users to duplicate the setting in the env file.
+    """
+    path = (state_dir or STATE_DIR) / "config.json"
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, TypeError, ValueError):
+        return ""
+    if not isinstance(data, dict):
+        return ""
+    telegram = data.get("telegram") or {}
+    if not isinstance(telegram, dict):
+        return ""
+    return str(telegram.get("proxy") or "").strip()
+
+
 def build_tdl_base_args(
     tdl_bin: str | None = None,
     storage: str | None = None,
@@ -490,6 +511,8 @@ def build_tdl_base_args(
     selected_global_proxy = GLOBAL_PROXY if global_proxy is None else global_proxy
     if tdl_proxy is None:
         selected_proxy = os.environ.get("TGDL_TDL_PROXY", selected_global_proxy)
+        if not str(selected_proxy or "").strip():
+            selected_proxy = load_configured_telegram_proxy()
     else:
         selected_proxy = tdl_proxy
 
@@ -2321,7 +2344,13 @@ def validate_telegram_auth_config(config: dict[str, str]) -> tuple[int, str, Pat
     return api_id, api_hash, Path(session_file)
 
 
-def parse_telegram_proxy_url(value: str | None) -> tuple[str, str, int] | None:
+def parse_telegram_proxy_url(value: str | None) -> dict[str, Any] | None:
+    """Parse a proxy URL into the dict form Telethon expects.
+
+    Username/password must be preserved. Returning only (scheme, host, port)
+    makes python-socks connect without credentials and typically yields HTTP
+    407 Proxy Authentication Required for authenticated proxies.
+    """
     text = str(value or "").strip()
     if not text:
         return None
@@ -2332,7 +2361,16 @@ def parse_telegram_proxy_url(value: str | None) -> tuple[str, str, int] | None:
         or not parsed.port
     ):
         raise RuntimeError("Telegram proxy must be socks4://, socks5://, or http://host:port")
-    return (parsed.scheme, parsed.hostname, int(parsed.port))
+    username = urllib.parse.unquote(parsed.username) if parsed.username else None
+    password = urllib.parse.unquote(parsed.password) if parsed.password else None
+    return {
+        "proxy_type": parsed.scheme,
+        "addr": parsed.hostname,
+        "port": int(parsed.port),
+        "username": username,
+        "password": password,
+        "rdns": True,
+    }
 
 
 def telethon_classes() -> tuple[Any, Any]:

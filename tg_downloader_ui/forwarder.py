@@ -62,13 +62,31 @@ def human_size(size: int) -> str:
     return f"{value:.1f} TB"
 
 
-def parse_proxy_url(value: str) -> tuple[str, str, int] | None:
+def parse_proxy_url(value: str) -> dict[str, object] | None:
+    """Parse a proxy URL into the dict form Telethon expects.
+
+    Must keep username/password; a bare (scheme, host, port) tuple causes
+    authenticated HTTP proxies to reject the client with 407.
+    """
     if not value:
         return None
     parsed = urllib.parse.urlparse(value)
-    if not parsed.scheme or not parsed.hostname or not parsed.port:
+    if (
+        parsed.scheme not in {"socks4", "socks5", "http"}
+        or not parsed.hostname
+        or not parsed.port
+    ):
         raise ValueError(f"invalid proxy url: {value}")
-    return (parsed.scheme, parsed.hostname, int(parsed.port))
+    username = urllib.parse.unquote(parsed.username) if parsed.username else None
+    password = urllib.parse.unquote(parsed.password) if parsed.password else None
+    return {
+        "proxy_type": parsed.scheme,
+        "addr": parsed.hostname,
+        "port": int(parsed.port),
+        "username": username,
+        "password": password,
+        "rdns": True,
+    }
 
 
 def normalize_forward_channel_id(value: str) -> int:

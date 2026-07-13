@@ -126,7 +126,25 @@ class ForwarderFormattingTests(unittest.TestCase):
     def test_parse_proxy_url_for_telethon(self):
         self.assertEqual(
             forwarder.parse_proxy_url("socks5://127.0.0.1:1080"),
-            ("socks5", "127.0.0.1", 1080),
+            {
+                "proxy_type": "socks5",
+                "addr": "127.0.0.1",
+                "port": 1080,
+                "username": None,
+                "password": None,
+                "rdns": True,
+            },
+        )
+        self.assertEqual(
+            forwarder.parse_proxy_url("http://user:p%40ss@10.0.0.1:7890"),
+            {
+                "proxy_type": "http",
+                "addr": "10.0.0.1",
+                "port": 7890,
+                "username": "user",
+                "password": "p@ss",
+                "rdns": True,
+            },
         )
         self.assertIsNone(forwarder.parse_proxy_url(""))
 
