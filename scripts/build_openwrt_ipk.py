@@ -603,6 +603,8 @@ def main() -> int:
     root = args.root.resolve()
     ipk = build_ipk(root, args.output_dir, version=args.version)
     print(ipk)
+    full_ipk = build_full_ipk(root, args.output_dir, version=args.version)
+    print(full_ipk)
     if not args.skip_meta:
         meta_ipk = build_meta_ipk(root, args.output_dir, version=args.version)
         print(meta_ipk)

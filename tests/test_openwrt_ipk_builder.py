@@ -593,6 +593,24 @@ exit 99
         self.assertNotIn("exit 99", function)
         self.assertEqual(result.returncode, 0)
 
+    def test_main_builds_generic_full_and_meta_packages(self):
+        builder = load_builder()
+        generic = Path("dist/openwrt/tg-downloader-ui_0.1.0_all.ipk")
+        full = Path("dist/openwrt/tg-downloader-ui-full_0.1.0_x86_64.ipk")
+        meta = Path("dist/openwrt/app-meta-tg-downloader-ui_0.1.0-r1_all.ipk")
+
+        with (
+            mock.patch("sys.argv", ["build_openwrt_ipk.py"]),
+            mock.patch.object(builder, "build_ipk", return_value=generic) as build_generic,
+            mock.patch.object(builder, "build_full_ipk", return_value=full) as build_full,
+            mock.patch.object(builder, "build_meta_ipk", return_value=meta) as build_meta,
+        ):
+            self.assertEqual(builder.main(), 0)
+
+        build_generic.assert_called_once()
+        build_full.assert_called_once()
+        build_meta.assert_called_once()
+
 
 if __name__ == "__main__":
     unittest.main()

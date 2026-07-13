@@ -49,10 +49,24 @@ jobs:
           python-version: "3.12"
       - run: python scripts/build_openwrt_ipk.py --output-dir dist/openwrt
       - run: |
-          vendor_root="$(mktemp -d)"
-          trap 'rm -rf "$vendor_root"' EXIT
-          tar -xOf dist/openwrt/tg-downloader-ui_0.1.0_all.ipk ./data.tar.gz | tar -xz -C "$vendor_root"
-          PYTHONPATH="$vendor_root/opt/tg-downloader-ui/vendor" python -c "import telethon, qrcode, rsa, pyasn1, pyaes"
+          test -f dist/openwrt/tg-downloader-ui_0.1.0_all.ipk
+          test -f dist/openwrt/tg-downloader-ui-full_0.1.0_x86_64.ipk
+          test -f dist/openwrt/app-meta-tg-downloader-ui_0.1.0-r1_all.ipk
+
+          generic_root="$(mktemp -d)"
+          full_root="$(mktemp -d)"
+          trap 'rm -rf "$generic_root" "$full_root"' EXIT
+
+          tar -xOf dist/openwrt/tg-downloader-ui_0.1.0_all.ipk ./data.tar.gz | tar -xz -C "$generic_root"
+          PYTHONPATH="$generic_root/usr/lib/tg-downloader-ui/vendor" \
+            python -c "import telethon, qrcode, rsa, pyasn1, pyaes"
+
+          tar -xOf dist/openwrt/tg-downloader-ui-full_0.1.0_x86_64.ipk ./data.tar.gz | tar -xz -C "$full_root"
+          test -x "$full_root/usr/bin/tdl"
+          test -x "$full_root/usr/bin/tg-downloader-ui"
+          test -f "$full_root/usr/share/licenses/tg-downloader-ui-full/tdl-AGPL-3.0.txt"
+          test -f "$full_root/usr/share/licenses/tg-downloader-ui-full/tdl-NOTICE.txt"
+          "$full_root/usr/bin/tdl" version | grep '0.20.3'
 
   docker:
     runs-on: ubuntu-latest
