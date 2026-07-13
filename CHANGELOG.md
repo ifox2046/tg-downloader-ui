@@ -2,7 +2,12 @@
 
 ## Unreleased
 
-- Prepare the project for public open-source use.
-- Add safe first-run initialization.
-- Add Docker and Compose deployment files.
-- Document `iyear/tdl` as an AGPL-3.0 third-party runtime dependency.
+## 0.1.0 - 2026-07-13
+
+- Add the authenticated Web UI, job history, source/path configuration, and safe first-run setup.
+- Add Docker Compose deployment with persistent configuration, tdl state, and download paths.
+- Add optional Telethon forwarding with code/QR authorization and authenticated proxy support.
+- Add live-process pause and continue using `SIGSTOP`/`SIGCONT` without restarting partial downloads.
+- Add OpenWrt/iStoreOS IPK packaging, LuCI entry, procd service, offline Python dependencies, and iStore metadata package.
+- Add Docker, OpenWrt 23.05/24.10, and iStoreOS verification coverage.
+- Document `iyear/tdl` as an AGPL-3.0 third-party runtime dependency while keeping project code under MIT.

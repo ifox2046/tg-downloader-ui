@@ -1,5 +1,7 @@
 # tg-downloader-ui
 
+[简体中文](README_ZH.md) | English
+
 Lightweight web UI and automation layer for Telegram downloads with
 [`iyear/tdl`](https://github.com/iyear/tdl).
 

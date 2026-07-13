@@ -1,0 +1,201 @@
+# tg-downloader-ui
+
+简体中文 | [English](README.md)
+
+基于 [`iyear/tdl`](https://github.com/iyear/tdl) 的轻量级 Telegram 下载 Web UI 与自动化层。
+
+`tdl` 是实际的下载运行时。本项目提供简洁的 Web 控制台、任务历史、路径与来源设置，以及可选的 Telegram 转发器。本项目与 Telegram 无关联，也不是 `tdl` 官方项目。
+
+本服务以本地优先为原则。Python 应用默认仅监听回环地址，Docker Compose 默认也只发布到 `127.0.0.1`。请勿将服务直接暴露到公网；需要远程访问时，请使用可信的 HTTPS 反向代理或 VPN。
+
+## 运行模式
+
+- 基础下载模式：安装并登录 `tdl`，配置下载目录和来源会话，然后在 Web UI 中提交 Telegram 消息 ID。
+- 可选转发模式：额外配置你自己的 Telegram API 凭据、Telethon 会话、来源用户或机器人，以及目标频道。
+
+只有在希望本服务监听消息并将摘要转发到你自己的频道时，才需要启用转发器。
+
+## 暂停与恢复语义
+
+暂停和继续是 Linux 上的在线进程控制：服务向同一个正在运行的 `tdl` 进程发送 `SIGSTOP` 和 `SIGCONT`，从而保留 PID、已打开的临时文件和当前字节偏移。取消任务或关闭服务时，会先继续已停止的子进程，再将其正常终止。
+
+这与应用或容器重启后的恢复不同。`tdl 0.20.3 --continue` 可以在包含多个项目的导出文件中跳过已经完整下载的项目，但不能恢复单个未完成文件内部的字节范围。因此，应用或容器重启后，当前单文件仍可能从零开始下载。
+
+## Docker 快速开始
+
+Docker 镜像会在镜像内安装未经修改的 `tdl` 官方发行版二进制文件。AGPL-3.0 声明请参阅 [THIRD_PARTY.md](THIRD_PARTY.md)。
+
+```sh
+cp .env.example .env
+docker compose up --build
+```
+
+打开：
+
+```text
+http://localhost:9910
+```
+
+首次启动时，初始化页面要求填写：
+
+- 管理员用户名
+- 至少八个字符的管理员密码，不限制字符组合
+- 绝对下载目录；Docker 通常使用 `/downloads`
+
+第一个完成该表单的浏览器会创建管理员账户。在把监听或发布地址从回环地址改为局域网地址之前，请先完成首次管理员初始化。
+
+如需无人值守初始化，请在首次启动前同时设置 `TGDL_AUTH_USER` 和 `TGDL_AUTH_PASSWORD`。如果希望使用浏览器初始化流程，请不要设置 `TGDL_AUTH_PASSWORD`。真实密码应保存在未被 Git 跟踪的本地环境文件中。
+
+Docker 持久化路径：
+
+- `./data/config` -> `/config`
+- `./data/tdl` -> `/tdl`
+- `./downloads` -> `/downloads`
+
+这些宿主机目录必须允许 UID/GID `1000` 写入。容器准备好挂载根目录后，会以该非 root 用户运行应用。
+
+`0.1.0` Docker 镜像面向 Linux x86-64，构建时会校验内置、未经修改的 `tdl 0.20.3` 二进制文件。容器默认启动 Web UI 和可选转发器；设置 `TGDL_FORWARDER_ENABLED=0` 可关闭转发器。转发器重启按钮只会重启容器内的转发进程，不需要访问 Docker socket。
+
+## tdl 登录
+
+基础下载模式需要有效的 `tdl` 登录状态。在 Docker 中，优先使用 Web UI：
+
+1. 登录 `http://localhost:9910`。
+2. 打开 Telegram 授权页面。
+3. 在“tdl 下载登录”中启动二维码登录，并使用自己的 Telegram 账户扫描终端二维码。
+
+需要仅通过命令行检查时，也可以直接运行等效命令：
+
+```sh
+docker compose run --rm web tdl login --storage type=bolt,path=/tdl/data
+```
+
+非 Docker 安装请按照 `tdl` 上游文档安装，然后使用与 `TGDL_TDL_STORAGE` 配置相同的存储路径执行等效登录命令。
+
+## Telegram API 凭据
+
+只有可选转发器需要 Telegram API 凭据。
+
+1. 使用自己的 Telegram 账户登录 https://my.telegram.org。
+2. 创建应用并复制 `api_id` 和 `api_hash`。
+3. 创建用于接收转发消息的 Telegram 频道。
+4. 将自己的账户加入该频道，并获取频道数字 ID。
+5. 设置 `TGDL_API_ID`、`TGDL_API_HASH`、`TGDL_SESSION_FILE` 和 `TGDL_FORWARD_CHANNEL_ID`。
+
+首次初始化完成后，Web UI 会提供“Telegram 授权”页面。可在其中保存 API ID/Hash、会话文件路径、目标频道 ID 和可选代理，然后通过短信验证码或二维码授权 Telethon 账户。UI 会把 Telethon `StringSession` 写入 `TGDL_SESSION_FILE`。Docker 转发器可以复用同一份 `/config/config.json` 和 `/tdl/session.txt` 状态。
+
+`tdl` 登录与 Telethon 授权彼此独立。基础下载需要 `tdl` 登录；转发器需要 Telethon 会话。
+
+请勿公开私有账户的 `api_hash`、会话字符串或频道 ID。
+
+整个状态目录、Telegram 会话、代理凭据、任务日志和下载器日志都应视为敏感数据。不要将它们提交到 Git、附加到 Issue 或放入公开支持日志。
+
+## 配置
+
+配置优先级：
+
+1. 命令行参数（如果对应功能提供）
+2. 环境变量
+3. `config.json`
+4. 安全默认值
+
+`config.json` 位于 `TGDL_STATE_DIR` 下；Docker 中为 `/config`。
+
+| 名称 | 是否必需 | 默认值 | 说明 |
+| --- | --- | --- | --- |
+| `TGDL_HOST` | 否 | `127.0.0.1` | Web UI 监听地址。Docker 会覆盖容器内监听地址，而 Compose 仍将宿主机发布限制在回环地址。 |
+| `TGDL_PORT` | 否 | `9910` | Web UI 端口。 |
+| `TGDL_STATE_DIR` | 否 | 用户状态目录 | 配置、数据库、日志和转发器状态。 |
+| `TGDL_DOWNLOAD_DIR` | 初始化时 | 用户下载目录 | 默认下载目录。 |
+| `TGDL_TDL_BIN` | 否 | `tdl` | `tdl` 二进制文件路径。 |
+| `TGDL_TDL_STORAGE` | 否 | 状态目录内的 Bolt DB | `tdl --storage` 参数值。 |
+| `TGDL_TDL_LOG` | 否 | 状态目录内日志 | 用于读取 `tdl` 诊断信息的日志路径。 |
+| `TGDL_PROXY` | 否 | 空 | 全局代理回退值。 |
+| `TGDL_TDL_PROXY` | 否 | `TGDL_PROXY` | `tdl` 下载和导出命令使用的代理；空值表示禁用。 |
+| `TGDL_TELEGRAM_PROXY` | 否 | `TGDL_PROXY` | 转发器与 Telethon 使用的代理；空值表示禁用。 |
+| `TGDL_SESSION_MAX_AGE` | 否 | `604800` | 登录 Cookie 有效期，单位为秒。 |
+| `TGDL_AUTH_USER` | 无人值守初始化 | `admin` | 首次启动前设置 `TGDL_AUTH_PASSWORD` 时使用的管理员用户名。 |
+| `TGDL_AUTH_PASSWORD` | 无人值守初始化 | 空 | 首次启动时可选的管理员密码；未设置时使用浏览器初始化页面。不要将此值提交到 Git。 |
+| `TGDL_COOKIE_SECURE` | 否 | `0` | 浏览器通过 HTTPS 访问服务时设为 `1`。 |
+| `TGDL_PUBLISH_HOST` | Docker | `127.0.0.1` | Docker Compose 发布端口时使用的宿主机地址。 |
+| `TGDL_PUBLISH_PORT` | Docker | `9910` | Docker Compose 使用的宿主机端口。 |
+| `TGDL_FORWARDER_ENABLED` | 否 | 打包部署中为 `1` | Docker 和 OpenWrt 默认启动可选转发器；设为 `0` 可关闭。 |
+| `TGDL_API_ID` | 转发器 | 空 | 来自 `my.telegram.org` 的 Telegram API ID。 |
+| `TGDL_API_HASH` | 转发器 | 空 | 来自 `my.telegram.org` 的 Telegram API Hash。 |
+| `TGDL_SESSION_FILE` | 转发器 | 状态目录内会话路径 | Telethon 字符串会话文件。 |
+| `TGDL_FORWARD_SOURCE` | 回退配置 | 空 | 未配置来源时使用的来源用户或机器人。 |
+| `TGDL_FORWARD_CHANNEL_ID` | 转发器 | 空 | 接收转发消息的目标频道 ID。 |
+| `TGDL_FORWARDER_LOG` | 否 | 状态目录内日志 | 转发器日志路径。 |
+| `TGDL_FORWARDER_STATUS` | 否 | 状态目录内 JSON | 转发器状态 JSON 路径。 |
+| `TGDL_FORWARDER_RESTART_CMD` | 否 | OpenWrt 自动检测；Docker 设置本地重启脚本 | Web UI 转发器重启按钮使用的自定义命令。命令会解析为 argv，绝不会通过 shell 执行。 |
+
+代理值使用 URL 格式，例如：
+
+```text
+socks5://127.0.0.1:1080
+http://127.0.0.1:8080
+```
+
+## Python 包
+
+```sh
+python -m pip install .
+tg-downloader-ui
+```
+
+安装包包含 Telegram 授权所需的 Telethon 和 qrcode 依赖。转发器仍为可选功能：
+
+```sh
+tg-downloader-forwarder
+```
+
+## OpenWrt / iStoreOS
+
+在普通开发机上构建 OpenWrt `.ipk` 包：
+
+```sh
+python scripts/build_openwrt_ipk.py
+```
+
+在 OpenWrt 上安装：
+
+```sh
+opkg install tg-downloader-ui_0.1.0_all.ipk
+```
+
+安装包包含 Web 应用、procd 初始化脚本、环境变量模板和 LuCI 菜单入口。Telethon、qrcode、rsa、pyasn1、pyaes 以及所需代理依赖会经过校验并预置在 IPK 中，因此路由器安装时不会运行 `pip`，可离线完成。IPK 不包含 `tdl`；请根据路由器架构单独安装上游 `tdl` 二进制文件，放置在 `/usr/bin/tdl`，或设置 `TGDL_TDL_BIN`。
+
+完整手工测试清单请参阅 [docs/TESTING.md](docs/TESTING.md)，OpenWrt/iStoreOS 真机测试清单请参阅 [docs/OPENWRT_TESTING.md](docs/OPENWRT_TESTING.md)。
+
+使用环境变量模板：
+
+```sh
+cp openwrt/tg-downloader-ui.env.example /etc/tg-downloader-ui.env
+chmod 600 /etc/tg-downloader-ui.env
+```
+
+编辑 `/etc/tg-downloader-ui.env` 后重启：
+
+```sh
+/etc/init.d/tg-downloader-ui restart
+```
+
+Docker 和 OpenWrt 打包部署默认启动可选转发器。在 OpenWrt 上设置 `TGDL_FORWARDER_ENABLED=0` 可关闭转发器。
+
+## 开发
+
+```sh
+python -m unittest discover tests -v
+python -m compileall tg_downloader_ui tests
+python -m build
+python scripts/build_openwrt_ipk.py
+```
+
+## 贡献者
+
+- D.Fox — 项目所有者与维护者
+- ChatGPT（OpenAI）— 设计、实现、调试、测试和文档协助
+
+## 许可证
+
+本项目自身代码采用 MIT 许可证。`iyear/tdl` 是采用 AGPL-3.0 的第三方下载运行时，详情请参阅 [THIRD_PARTY.md](THIRD_PARTY.md)。
