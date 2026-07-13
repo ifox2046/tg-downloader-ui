@@ -241,11 +241,6 @@ python -m build
 python scripts/build_openwrt_ipk.py
 ```
 
-## Contributors
-
-- D.Fox — project owner and maintainer
-- ChatGPT (OpenAI) — design, implementation, debugging, testing, and documentation assistance
-
 ## License
 
 This project's own code is MIT licensed. `iyear/tdl` is AGPL-3.0 and is used

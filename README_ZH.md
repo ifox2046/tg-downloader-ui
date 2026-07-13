@@ -191,11 +191,6 @@ python -m build
 python scripts/build_openwrt_ipk.py
 ```
 
-## 贡献者
-
-- D.Fox — 项目所有者与维护者
-- ChatGPT（OpenAI）— 设计、实现、调试、测试和文档协助
-
 ## 许可证
 
 本项目自身代码采用 MIT 许可证。`iyear/tdl` 是采用 AGPL-3.0 的第三方下载运行时，详情请参阅 [THIRD_PARTY.md](THIRD_PARTY.md)。
