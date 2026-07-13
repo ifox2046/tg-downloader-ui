@@ -22,6 +22,20 @@ META_APP_NAME = "tg-downloader-ui"
 ARCHITECTURE = "all"
 DEPENDS = ["python3", "python3-sqlite3", "ca-bundle"]
 META_RELEASE = 1
+FULL_PACKAGE_NAME = "tg-downloader-ui-full"
+FULL_ARCHITECTURE = "x86_64"
+TDL_VERSION = "0.20.3"
+TDL_ASSET = "tdl_Linux_64bit.tar.gz"
+TDL_URL = (
+    f"https://github.com/iyear/tdl/releases/download/"
+    f"v{TDL_VERSION}/{TDL_ASSET}"
+)
+TDL_SOURCE_URL = f"https://github.com/iyear/tdl/tree/v{TDL_VERSION}"
+TDL_SHA256 = "f69fe06c17f74c30a3b894b5be05c57a1b082f56b346c994025a2301b269a718"
+FULL_CLI = (
+    b"#!/bin/sh\n"
+    b'exec /usr/bin/python3 /usr/lib/tg-downloader-ui/app.py "$@"\n'
+)
 
 
 # Ship under /usr/lib so opkg extraction always lands on a normal overlay path.
@@ -166,6 +180,22 @@ def control_text(version: str) -> str:
     )
 
 
+def full_control_text(version: str) -> str:
+    return (
+        f"Package: {FULL_PACKAGE_NAME}\n"
+        f"Version: {version}\n"
+        f"Architecture: {FULL_ARCHITECTURE}\n"
+        f"Maintainer: tg-downloader-ui contributors\n"
+        f"License: MIT AND AGPL-3.0-only\n"
+        f"Depends: {', '.join(DEPENDS)}\n"
+        f"Conflicts: {PACKAGE_NAME}\n"
+        f"Provides: {PACKAGE_NAME}\n"
+        f"Section: net\n"
+        f"Priority: optional\n"
+        f"Description: Complete x86_64 Telegram download Web UI with tdl {TDL_VERSION}.\n"
+    )
+
+
 def meta_version(version: str, release: int = META_RELEASE) -> str:
     return f"{version}-r{release}"
 
@@ -306,6 +336,17 @@ def control_tar(version: str) -> bytes:
     )
 
 
+def full_control_tar(version: str) -> bytes:
+    return tar_gz(
+        [
+            ("./control", full_control_text(version).encode("utf-8"), 0o644),
+            ("./postinst", POSTINST.encode("utf-8"), 0o755),
+            ("./prerm", PRERM.encode("utf-8"), 0o755),
+            ("./postrm", POSTRM.encode("utf-8"), 0o755),
+        ]
+    )
+
+
 def download_bytes(url: str) -> bytes:
     with urllib.request.urlopen(url, timeout=60) as response:
         return response.read()
@@ -344,6 +385,52 @@ def archive_files(payload: bytes, archive_type: str) -> dict[str, bytes]:
                     files[path.as_posix()] = handle.read()
         return files
     raise ValueError(f"unsupported vendor archive: {archive_type}")
+
+
+def tdl_notice_text() -> str:
+    return (
+        "iyear/tdl\n"
+        f"Version: {TDL_VERSION}\n"
+        f"Source tag: {TDL_SOURCE_URL}\n"
+        f"Release archive: {TDL_URL}\n"
+        "License: GNU Affero General Public License v3.0\n"
+        "The bundled /usr/bin/tdl binary is unmodified from the upstream "
+        "release archive.\n"
+    )
+
+
+def tdl_entries(fetcher=download_bytes) -> list[tuple[str, bytes, int]]:
+    payload = fetcher(TDL_URL)
+    verify_sha256(payload, TDL_SHA256)
+    files = archive_files(payload, "tar.gz")
+
+    binaries = [
+        content
+        for name, content in files.items()
+        if PurePosixPath(name).name == "tdl"
+    ]
+    if len(binaries) != 1:
+        raise ValueError("tdl executable not found exactly once in upstream archive")
+
+    licenses = [
+        content
+        for name, content in files.items()
+        if PurePosixPath(name).name == "LICENSE"
+    ]
+    if len(licenses) != 1:
+        raise ValueError("tdl LICENSE not found exactly once in upstream archive")
+
+    license_root = "./usr/share/licenses/tg-downloader-ui-full"
+    return [
+        ("./usr/bin/tdl", binaries[0], 0o755),
+        ("./usr/bin/tg-downloader-ui", FULL_CLI, 0o755),
+        (f"{license_root}/tdl-AGPL-3.0.txt", licenses[0], 0o644),
+        (
+            f"{license_root}/tdl-NOTICE.txt",
+            tdl_notice_text().encode("utf-8"),
+            0o644,
+        ),
+    ]
 
 
 def vendor_entries(
@@ -390,7 +477,7 @@ def vendor_entries(
     return entries
 
 
-def data_tar(root: Path) -> bytes:
+def application_entries(root: Path) -> list[tuple[str, bytes | None, int]]:
     entries: list[tuple[str, bytes | None, int]] = [
         (directory, None, 0o755) for directory in DATA_DIRS
     ]
@@ -400,6 +487,16 @@ def data_tar(root: Path) -> bytes:
             raise FileNotFoundError(path)
         entries.append((target, path.read_bytes(), mode))
     entries.extend(vendor_entries(root))
+    return entries
+
+
+def data_tar(root: Path) -> bytes:
+    return tar_gz(with_parent_directories(application_entries(root)))
+
+
+def full_data_tar(root: Path, fetcher=download_bytes) -> bytes:
+    entries = application_entries(root)
+    entries.extend(tdl_entries(fetcher=fetcher))
     return tar_gz(with_parent_directories(entries))
 
 
@@ -425,6 +522,31 @@ def build_ipk(
             ("debian-binary", b"2.0\n"),
             ("data.tar.gz", data_tar(root)),
             ("control.tar.gz", control_tar(resolved_version)),
+        ],
+    )
+    return output_path
+
+
+def build_full_ipk(
+    root: Path,
+    output_dir: Path,
+    version: str | None = None,
+    architecture: str = FULL_ARCHITECTURE,
+    fetcher=download_bytes,
+) -> Path:
+    if architecture != FULL_ARCHITECTURE:
+        raise ValueError("only architecture 'x86_64' is supported")
+    resolved_version = version or project_version(root)
+    output_path = (
+        output_dir
+        / f"{FULL_PACKAGE_NAME}_{resolved_version}_{architecture}.ipk"
+    )
+    write_outer_tar(
+        output_path,
+        [
+            ("debian-binary", b"2.0\n"),
+            ("data.tar.gz", full_data_tar(root, fetcher=fetcher)),
+            ("control.tar.gz", full_control_tar(resolved_version)),
         ],
     )
     return output_path

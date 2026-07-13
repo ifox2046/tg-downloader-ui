@@ -74,6 +74,25 @@ def make_sdist(package_name: str, version: str, license_member: str) -> bytes:
     return out.getvalue()
 
 
+def make_tdl_archive(
+    binary: bytes = b"fake tdl 0.20.3 payload\n",
+    license_text: bytes = b"GNU AFFERO GENERAL PUBLIC LICENSE Version 3\n",
+) -> bytes:
+    out = io.BytesIO()
+    with tarfile.open(fileobj=out, mode="w:gz") as archive:
+        files = {
+            "LICENSE": license_text,
+            "README.md": b"tdl upstream readme\n",
+            "README_zh.md": b"tdl upstream Chinese readme\n",
+            "tdl": binary,
+        }
+        for name, payload in files.items():
+            info = tarfile.TarInfo(name)
+            info.size = len(payload)
+            archive.addfile(info, io.BytesIO(payload))
+    return out.getvalue()
+
+
 def fake_vendor_lock_and_payloads():
     definitions = [
         ("telethon", "1.44.0", "wheel", "telethon/", "", "telethon-1.44.0.dist-info/licenses/LICENSE"),
@@ -148,6 +167,91 @@ def fake_vendor_entries():
 
 
 class OpenWrtIpkBuilderTests(unittest.TestCase):
+    def test_tdl_entries_reject_sha_mismatch(self):
+        builder = load_builder()
+        payload = make_tdl_archive()
+
+        with mock.patch.object(builder, "TDL_SHA256", "0" * 64):
+            with self.assertRaisesRegex(ValueError, "sha256 mismatch"):
+                builder.tdl_entries(fetcher=lambda _url: payload)
+
+    def test_build_full_ipk_bundles_tdl_license_notice_and_launcher(self):
+        root = Path(__file__).resolve().parents[1]
+        builder = load_builder()
+        tdl_binary = b"fake tdl 0.20.3 payload\n"
+        tdl_license = b"GNU AFFERO GENERAL PUBLIC LICENSE Version 3\n"
+        tdl_archive = make_tdl_archive(tdl_binary, tdl_license)
+
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            mock.patch.object(
+                builder, "vendor_entries", return_value=fake_vendor_entries()
+            ),
+            mock.patch.object(
+                builder,
+                "TDL_SHA256",
+                hashlib.sha256(tdl_archive).hexdigest(),
+            ),
+        ):
+            ipk_path = builder.build_full_ipk(
+                root,
+                Path(tmp),
+                fetcher=lambda _url: tdl_archive,
+            )
+
+            self.assertEqual(
+                ipk_path.name,
+                "tg-downloader-ui-full_0.1.0_x86_64.ipk",
+            )
+            members = read_outer_tar_members(ipk_path)
+            self.assertEqual(
+                set(members),
+                {"debian-binary", "control.tar.gz", "data.tar.gz"},
+            )
+
+            control_tar = tarfile.open(
+                fileobj=io.BytesIO(members["control.tar.gz"]), mode="r:gz"
+            )
+            control_handle = control_tar.extractfile("./control")
+            self.assertIsNotNone(control_handle)
+            control = control_handle.read().decode("utf-8")
+            self.assertIn("Package: tg-downloader-ui-full", control)
+            self.assertIn("Version: 0.1.0", control)
+            self.assertIn("Architecture: x86_64", control)
+            self.assertIn("Conflicts: tg-downloader-ui", control)
+            self.assertIn("Provides: tg-downloader-ui", control)
+            self.assertIn("License: MIT AND AGPL-3.0-only", control)
+
+            data_tar = tarfile.open(
+                fileobj=io.BytesIO(members["data.tar.gz"]), mode="r:gz"
+            )
+            names = set(data_tar.getnames())
+            tdl_path = "./usr/bin/tdl"
+            cli_path = "./usr/bin/tg-downloader-ui"
+            license_path = (
+                "./usr/share/licenses/tg-downloader-ui-full/tdl-AGPL-3.0.txt"
+            )
+            notice_path = (
+                "./usr/share/licenses/tg-downloader-ui-full/tdl-NOTICE.txt"
+            )
+            self.assertTrue(
+                {tdl_path, cli_path, license_path, notice_path}.issubset(names)
+            )
+            self.assertEqual(data_tar.getmember(tdl_path).mode, 0o755)
+            self.assertEqual(data_tar.getmember(cli_path).mode, 0o755)
+            self.assertEqual(data_tar.extractfile(tdl_path).read(), tdl_binary)
+            self.assertEqual(data_tar.extractfile(license_path).read(), tdl_license)
+            launcher = data_tar.extractfile(cli_path).read().decode("utf-8")
+            self.assertEqual(
+                launcher,
+                "#!/bin/sh\n"
+                "exec /usr/bin/python3 /usr/lib/tg-downloader-ui/app.py \"$@\"\n",
+            )
+            notice = data_tar.extractfile(notice_path).read().decode("utf-8")
+            self.assertIn("Version: 0.20.3", notice)
+            self.assertIn("https://github.com/iyear/tdl/tree/v0.20.3", notice)
+            self.assertIn("unmodified", notice)
+
     def test_vendor_entries_map_packages_and_licenses(self):
         builder = load_builder()
         lock, payloads = fake_vendor_lock_and_payloads()
