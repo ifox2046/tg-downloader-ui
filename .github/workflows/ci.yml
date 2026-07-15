@@ -87,5 +87,20 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: docker build --build-arg TDL_VERSION=0.20.3 -t tg-downloader-ui:test .
-      - run: docker run --rm tg-downloader-ui:test tdl version
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      # Multi-arch verify only — never push from PR/main (see docker-publish.yml).
+      - name: Multi-arch build (amd64 + arm64, no push)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: false
+          tags: tg-downloader-ui:ci-multi
+          build-args: |
+            TDL_VERSION=0.20.3
+      # Native amd64 image for runtime smoke (tdl version).
+      - name: amd64 smoke build and tdl version
+        run: |
+          docker build --build-arg TDL_VERSION=0.20.3 -t tg-downloader-ui:test .
+          docker run --rm tg-downloader-ui:test tdl version
