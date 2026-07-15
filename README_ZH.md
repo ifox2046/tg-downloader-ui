@@ -54,7 +54,22 @@ Docker 持久化路径：
 
 这些宿主机目录必须允许 UID/GID `1000` 写入。容器准备好挂载根目录后，会以该非 root 用户运行应用。
 
-`0.1.0` Docker 镜像面向 Linux x86-64，构建时会校验内置、未经修改的 `tdl 0.20.3` 二进制文件。容器默认启动 Web UI 和可选转发器；设置 `TGDL_FORWARDER_ENABLED=0` 可关闭转发器。转发器重启按钮只会重启容器内的转发进程，不需要访问 Docker socket。
+发布的 Docker 镜像为多架构（`linux/amd64` 与 `linux/arm64`），在 Docker Hub 上共用同一镜像名与标签：
+
+```text
+ifox2046/tg-downloader-ui:0.1.0
+ifox2046/tg-downloader-ui:latest
+```
+
+各平台在构建时安装对应架构、经校验的上游未修改 `tdl 0.20.3` 二进制（amd64 为 `tdl_Linux_64bit.tar.gz`，arm64 为 `tdl_Linux_arm64.tar.gz`）。在 amd64 主机上本地 `docker compose build` / 普通 `docker build` 仍可直接使用，无需 Buildx。
+
+```sh
+docker pull ifox2046/tg-downloader-ui:0.1.0
+```
+
+容器默认启动 Web UI 和可选转发器；设置 `TGDL_FORWARDER_ENABLED=0` 可关闭转发器。转发器重启按钮只会重启容器内的转发进程，不需要访问 Docker socket。
+
+多架构镜像仅在版本 tag 或 GitHub Release 时由 Actions 推送（工作流 `Docker Publish`）。PR/main 的 CI 会构建 amd64 与 arm64 以校验 Dockerfile，但不会推送。推送需要仓库密钥 `DOCKERHUB_USERNAME` 与 `DOCKERHUB_TOKEN`，切勿写入本仓库。
 
 ## tdl 登录
 
@@ -215,4 +230,4 @@ python scripts/build_openwrt_ipk.py
 
 ## 许可证
 
-本项目自身代码采用 MIT 许可证。Docker 镜像以及 full OpenWrt IPK（`tg-downloader-ui-full_0.1.0_x86_64.ipk` 与 `tg-downloader-ui-full_0.1.0_aarch64_generic.ipk`）内置的 `tdl` 是未经修改的上游 `tdl 0.20.3` 二进制文件，采用 AGPL-3.0 许可证。每个 full IPK 会在 `/usr/share/licenses/tg-downloader-ui-full` 中安装上游许可证及源码/版本声明。详情参阅 [THIRD_PARTY.md](THIRD_PARTY.md)。
+本项目自身代码采用 MIT 许可证。多架构 Docker 镜像（`linux/amd64` 与 `linux/arm64`）以及 full OpenWrt IPK（`tg-downloader-ui-full_0.1.0_x86_64.ipk` 与 `tg-downloader-ui-full_0.1.0_aarch64_generic.ipk`）内置的 `tdl` 是未经修改的上游 `tdl 0.20.3` 二进制文件，采用 AGPL-3.0 许可证。每个 full IPK 会在 `/usr/share/licenses/tg-downloader-ui-full` 中安装上游许可证及源码/版本声明。详情参阅 [THIRD_PARTY.md](THIRD_PARTY.md)。

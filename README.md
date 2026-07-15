@@ -76,12 +76,33 @@ Persistent Docker paths:
 These host directories must be writable by UID/GID `1000`. The container runs
 the application as that non-root user after preparing the mount roots.
 
-The `0.1.0` Docker image targets Linux x86-64 and verifies the checksum of the
-bundled unmodified `tdl` `0.20.3` binary during the build. The container starts
-the Web UI and optional forwarder by default; set `TGDL_FORWARDER_ENABLED=0`
-to opt out of the forwarder.
-The forwarder restart button restarts the in-container forwarder process; it
-does not need the Docker socket.
+The published Docker image is multi-architecture (`linux/amd64` and
+`linux/arm64`) under one name on Docker Hub:
+
+```text
+ifox2046/tg-downloader-ui:0.1.0
+ifox2046/tg-downloader-ui:latest
+```
+
+Each platform installs a checksum-verified, unmodified upstream `tdl` `0.20.3`
+binary for that architecture (`tdl_Linux_64bit.tar.gz` on amd64,
+`tdl_Linux_arm64.tar.gz` on arm64). Local `docker compose build` / plain
+`docker build` on an amd64 host still works without Buildx.
+
+```sh
+docker pull ifox2046/tg-downloader-ui:0.1.0
+```
+
+The container starts the Web UI and optional forwarder by default; set
+`TGDL_FORWARDER_ENABLED=0` to opt out of the forwarder. The forwarder restart
+button restarts the in-container forwarder process; it does not need the Docker
+socket.
+
+Multi-arch images are built and pushed from GitHub Actions only on version tags
+or releases (workflow `Docker Publish`). PR/main CI builds both platforms to
+verify the Dockerfile without pushing. Repository secrets
+`DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` are required for publish; they are
+never stored in this repository.
 
 ## tdl Login
 
@@ -263,4 +284,4 @@ python scripts/build_openwrt_ipk.py
 
 ## License
 
-This project's own code is MIT licensed. The `tdl` binary bundled in Docker images and the full OpenWrt IPKs (`tg-downloader-ui-full_0.1.0_x86_64.ipk` and `tg-downloader-ui-full_0.1.0_aarch64_generic.ipk`) is an unmodified upstream `tdl 0.20.3` binary licensed under AGPL-3.0. Each full IPK includes the upstream license and source/version notice under `/usr/share/licenses/tg-downloader-ui-full`. See [THIRD_PARTY.md](THIRD_PARTY.md).
+This project's own code is MIT licensed. The `tdl` binary bundled in multi-arch Docker images (`linux/amd64` and `linux/arm64`) and the full OpenWrt IPKs (`tg-downloader-ui-full_0.1.0_x86_64.ipk` and `tg-downloader-ui-full_0.1.0_aarch64_generic.ipk`) is an unmodified upstream `tdl 0.20.3` binary licensed under AGPL-3.0. Each full IPK includes the upstream license and source/version notice under `/usr/share/licenses/tg-downloader-ui-full`. See [THIRD_PARTY.md](THIRD_PARTY.md).
