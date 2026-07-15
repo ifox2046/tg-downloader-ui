@@ -2131,13 +2131,42 @@ class DockerComposeTests(unittest.TestCase):
     def test_dockerfile_verifies_tdl_and_drops_runtime_privileges(self):
         dockerfile = Path("Dockerfile").read_text(encoding="utf-8")
 
+        # Multi-arch pins: amd64 (64bit) + arm64, aligned with OpenWrt full IPKs.
         self.assertIn(
             "f69fe06c17f74c30a3b894b5be05c57a1b082f56b346c994025a2301b269a718",
             dockerfile,
         )
+        self.assertIn(
+            "8398784d5b9390d26450e3e3528e2ffd0e9fe75d374f63273d0247e7ab0378b7",
+            dockerfile,
+        )
+        self.assertIn("tdl_Linux_64bit.tar.gz", dockerfile)
+        self.assertIn("tdl_Linux_arm64.tar.gz", dockerfile)
+        self.assertIn("TARGETARCH", dockerfile)
         self.assertIn("sha256sum -c -", dockerfile)
         self.assertIn("useradd", dockerfile)
         self.assertIn("setpriv", dockerfile)
+        self.assertIn("unsupported TARGETARCH", dockerfile)
+
+    def test_ci_builds_multiarch_and_publish_workflow_targets_docker_hub(self):
+        ci = Path(".github/workflows/ci.yml").read_text(encoding="utf-8")
+        publish = Path(".github/workflows/docker-publish.yml").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("linux/amd64,linux/arm64", ci)
+        self.assertIn("docker/setup-buildx-action", ci)
+        self.assertIn("docker build", ci)
+        self.assertIn("tdl version", ci)
+        self.assertNotIn("docker push", ci)
+
+        self.assertIn("ifox2046/tg-downloader-ui", publish)
+        self.assertIn("linux/amd64,linux/arm64", publish)
+        self.assertIn("DOCKERHUB_USERNAME", publish)
+        self.assertIn("DOCKERHUB_TOKEN", publish)
+        self.assertIn("push: true", publish)
+        self.assertIn("tags:", publish)
+        self.assertIn(":latest", publish)
 
     def test_docker_context_excludes_local_secrets(self):
         ignored = Path(".dockerignore").read_text(encoding="utf-8")

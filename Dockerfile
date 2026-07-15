@@ -1,8 +1,9 @@
 FROM python:3.12-slim
 
+# BuildKit sets TARGETARCH (amd64, arm64, …). Default keeps plain
+# `docker build` / compose on x86_64 hosts on the amd64 tdl pin.
+ARG TARGETARCH=amd64
 ARG TDL_VERSION=0.20.3
-ARG TDL_ASSET=tdl_Linux_64bit.tar.gz
-ARG TDL_SHA256=f69fe06c17f74c30a3b894b5be05c57a1b082f56b346c994025a2301b269a718
 ARG TGDL_UID=1000
 ARG TGDL_GID=1000
 
@@ -30,12 +31,31 @@ RUN apt-get update \
     && command -v setpriv \
     && rm -rf /var/lib/apt/lists/*
 
-RUN curl -fsSL "https://github.com/iyear/tdl/releases/download/v${TDL_VERSION}/${TDL_ASSET}" \
-      -o /tmp/tdl.tar.gz \
-    && echo "${TDL_SHA256}  /tmp/tdl.tar.gz" | sha256sum -c - \
-    && tar -xzf /tmp/tdl.tar.gz -C /tmp \
-    && find /tmp -type f -name tdl -exec install -m 0755 {} /usr/local/bin/tdl \; \
-    && rm -rf /tmp/tdl.tar.gz /tmp/tdl*
+# Pinned unmodified upstream tdl 0.20.3 assets (aligned with OpenWrt full IPKs).
+# amd64: tdl_Linux_64bit.tar.gz / f69fe06c17f74c30a3b894b5be05c57a1b082f56b346c994025a2301b269a718
+# arm64: tdl_Linux_arm64.tar.gz / 8398784d5b9390d26450e3e3528e2ffd0e9fe75d374f63273d0247e7ab0378b7
+RUN set -eux; \
+    arch="${TARGETARCH:-amd64}"; \
+    case "${arch}" in \
+      amd64|x86_64) \
+        tdl_asset="tdl_Linux_64bit.tar.gz"; \
+        tdl_sha256="f69fe06c17f74c30a3b894b5be05c57a1b082f56b346c994025a2301b269a718" \
+        ;; \
+      arm64|aarch64) \
+        tdl_asset="tdl_Linux_arm64.tar.gz"; \
+        tdl_sha256="8398784d5b9390d26450e3e3528e2ffd0e9fe75d374f63273d0247e7ab0378b7" \
+        ;; \
+      *) \
+        echo "unsupported TARGETARCH for tdl: ${arch}" >&2; \
+        exit 1 \
+        ;; \
+    esac; \
+    curl -fsSL "https://github.com/iyear/tdl/releases/download/v${TDL_VERSION}/${tdl_asset}" \
+      -o /tmp/tdl.tar.gz; \
+    echo "${tdl_sha256}  /tmp/tdl.tar.gz" | sha256sum -c -; \
+    tar -xzf /tmp/tdl.tar.gz -C /tmp; \
+    find /tmp -type f -name tdl -exec install -m 0755 {} /usr/local/bin/tdl \;; \
+    rm -rf /tmp/tdl.tar.gz /tmp/tdl*
 
 COPY pyproject.toml README.md THIRD_PARTY.md LICENSE /app/
 COPY tg_downloader_ui /app/tg_downloader_ui
