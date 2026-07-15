@@ -11,7 +11,12 @@ runtime.
 - License: GNU Affero General Public License v3.0
 - Use in this project: invoked as the `tdl` command-line program
 
-The Docker image and `tg-downloader-ui-full_0.1.0_x86_64.ipk` install an unmodified `tdl 0.20.3` release binary from the upstream GitHub release archive. The archive is verified with a pinned SHA-256 before extraction. The full IPK installs the upstream AGPL-3.0 license and a version/source notice under `/usr/share/licenses/tg-downloader-ui-full`.
+The Docker image and full OpenWrt IPKs install an unmodified `tdl 0.20.3` release binary from the upstream GitHub release archive. Each archive is verified with a pinned SHA-256 before extraction:
+
+- x86_64 full IPK: `tdl_Linux_64bit.tar.gz`
+- aarch64 full IPK (`Architecture: aarch64_generic`): `tdl_Linux_arm64.tar.gz`
+
+Each full IPK installs the upstream AGPL-3.0 license and a version/source notice under `/usr/share/licenses/tg-downloader-ui-full`.
 
 The generic `tg-downloader-ui_0.1.0_all.ipk` and the Python package do not bundle `tdl`; users provide it separately.
 

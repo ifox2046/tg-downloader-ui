@@ -86,6 +86,20 @@ scp .\dist\openwrt\tg-downloader-ui-full_0.1.0_x86_64.ipk "${target}:/tmp/"
 ssh $target "opkg install /tmp/tg-downloader-ui-full_0.1.0_x86_64.ipk"
 ```
 
+On aarch64 OpenWrt, build and install the separate arm64 full package instead:
+
+```sh
+python scripts/build_openwrt_ipk.py --full-arch aarch64
+# artifact: dist/openwrt/tg-downloader-ui-full_0.1.0_aarch64_generic.ipk
+# Architecture: aarch64_generic ; tdl asset: tdl_Linux_arm64.tar.gz
+```
+
+```powershell
+$target = "$env:OPENWRT_TEST_USER@$env:OPENWRT_TEST_HOST"
+scp .\dist\openwrt\tg-downloader-ui-full_0.1.0_aarch64_generic.ipk "${target}:/tmp/"
+ssh $target "opkg install /tmp/tg-downloader-ui-full_0.1.0_aarch64_generic.ipk"
+```
+
 The full package still requires first-run administrator setup and Telegram authentication.
 
 Expected full-package checks:
@@ -527,7 +541,36 @@ rm -rf /etc/tg-downloader-ui
 rm -rf /root/telegram-downloads
 ```
 
-## 17. Final Acceptance Checklist
+## 17. aarch64 full IPK lab (macvlan only, no host network)
+
+Use this when verifying `tg-downloader-ui-full_*_aarch64_generic.ipk` on an
+**amd64 Ubuntu Docker lab** (not a native ARM board). Hard rules:
+
+- Never use Docker `--network host`.
+- Never change the host primary address or default route.
+- Use a **disposable macvlan** on the host LAN parent NIC with a free IP.
+- Tear down the guest container and macvlan after the test.
+
+Outline (adjust parent NIC, subnet, gateway, free IP to your lab):
+
+```sh
+# On the lab host (example parent ens33, free IP not the host address):
+# 1) Snapshot host LAN first: ip -br addr; ip route
+# 2) Install qemu-user-static + binfmt-support (minimal packages only)
+# 3) docker network create -d macvlan \
+#      --subnet=192.168.101.0/24 --gateway=192.168.101.2 \
+#      -o parent=ens33 tgdl-macvlan-test
+# 4) Run OpenWrt aarch64 rootfs with --platform linux/arm64
+#      --network tgdl-macvlan-test --ip <free-ip>
+# 5) Inside guest: opkg install the aarch64_generic full IPK;
+#      tdl version; tg-downloader-ui --check; license files present
+# 6) Destroy container + docker network rm tgdl-macvlan-test
+# 7) Confirm host address/route unchanged
+```
+
+Do not commit lab host credentials, sudo passwords, or private channel IDs.
+
+## 18. Final Acceptance Checklist
 
 - [ ] Web UI starts from OpenWRT init script.
 - [ ] First-run setup is required.
@@ -541,3 +584,4 @@ rm -rf /root/telegram-downloads
 - [ ] LuCI menu entry opens the Web UI.
 - [ ] Optional forwarder works, if enabled.
 - [ ] Logs do not expose Telegram API hash or session strings.
+- [ ] aarch64 full IPK (if tested) used macvlan only, not host network.
