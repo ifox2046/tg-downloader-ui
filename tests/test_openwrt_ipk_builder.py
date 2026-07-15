@@ -166,14 +166,65 @@ def fake_vendor_entries():
     return entries
 
 
+def patch_full_arch_sha(builder, architecture: str, sha256: str):
+    """Return a patched FULL_ARCH_PROFILES with one arch sha256 replaced."""
+    profiles = {
+        key: dict(value) for key, value in builder.FULL_ARCH_PROFILES.items()
+    }
+    openwrt_arch = builder.resolve_full_arch_profile(architecture)["openwrt_arch"]
+    profiles[openwrt_arch] = dict(profiles[openwrt_arch])
+    profiles[openwrt_arch]["tdl_sha256"] = sha256
+    return mock.patch.object(builder, "FULL_ARCH_PROFILES", profiles)
+
+
 class OpenWrtIpkBuilderTests(unittest.TestCase):
     def test_tdl_entries_reject_sha_mismatch(self):
         builder = load_builder()
         payload = make_tdl_archive()
 
-        with mock.patch.object(builder, "TDL_SHA256", "0" * 64):
+        with patch_full_arch_sha(builder, "x86_64", "0" * 64):
             with self.assertRaisesRegex(ValueError, "sha256 mismatch"):
                 builder.tdl_entries(fetcher=lambda _url: payload)
+
+    def test_tdl_entries_reject_sha_mismatch_for_aarch64(self):
+        builder = load_builder()
+        payload = make_tdl_archive()
+
+        with patch_full_arch_sha(builder, "aarch64_generic", "0" * 64):
+            with self.assertRaisesRegex(ValueError, "sha256 mismatch"):
+                builder.tdl_entries(
+                    architecture="aarch64_generic",
+                    fetcher=lambda _url: payload,
+                )
+
+    def test_resolve_full_arch_profile_aliases(self):
+        builder = load_builder()
+        for token in ("aarch64", "aarch64_generic", "arm64"):
+            profile = builder.resolve_full_arch_profile(token)
+            self.assertEqual(profile["openwrt_arch"], "aarch64_generic")
+            self.assertEqual(profile["tdl_asset"], "tdl_Linux_arm64.tar.gz")
+        x86 = builder.resolve_full_arch_profile("x86_64")
+        self.assertEqual(x86["openwrt_arch"], "x86_64")
+        self.assertEqual(x86["tdl_asset"], "tdl_Linux_64bit.tar.gz")
+        with self.assertRaisesRegex(ValueError, "unsupported full package architecture"):
+            builder.resolve_full_arch_profile("mips")
+
+    def test_normalize_full_arch_list(self):
+        builder = load_builder()
+        self.assertEqual(builder.normalize_full_arch_list(None), ["x86_64"])
+        self.assertEqual(builder.normalize_full_arch_list([]), ["x86_64"])
+        self.assertEqual(
+            builder.normalize_full_arch_list(["aarch64"]),
+            ["aarch64_generic"],
+        )
+        self.assertEqual(
+            builder.normalize_full_arch_list(["x86_64", "aarch64", "x86_64"]),
+            ["x86_64", "aarch64_generic"],
+        )
+        self.assertEqual(
+            builder.normalize_full_arch_list(["all"]),
+            ["x86_64", "aarch64_generic"],
+        )
 
     def test_build_full_ipk_bundles_tdl_license_notice_and_launcher(self):
         root = Path(__file__).resolve().parents[1]
@@ -187,10 +238,8 @@ class OpenWrtIpkBuilderTests(unittest.TestCase):
             mock.patch.object(
                 builder, "vendor_entries", return_value=fake_vendor_entries()
             ),
-            mock.patch.object(
-                builder,
-                "TDL_SHA256",
-                hashlib.sha256(tdl_archive).hexdigest(),
+            patch_full_arch_sha(
+                builder, "x86_64", hashlib.sha256(tdl_archive).hexdigest()
             ),
         ):
             ipk_path = builder.build_full_ipk(
@@ -250,7 +299,72 @@ class OpenWrtIpkBuilderTests(unittest.TestCase):
             notice = data_tar.extractfile(notice_path).read().decode("utf-8")
             self.assertIn("Version: 0.20.3", notice)
             self.assertIn("https://github.com/iyear/tdl/tree/v0.20.3", notice)
+            self.assertIn("tdl_Linux_64bit.tar.gz", notice)
             self.assertIn("unmodified", notice)
+
+    def test_build_full_ipk_aarch64_generic_bundles_arm64_tdl(self):
+        root = Path(__file__).resolve().parents[1]
+        builder = load_builder()
+        tdl_binary = b"fake tdl 0.20.3 arm64 payload\n"
+        tdl_license = b"GNU AFFERO GENERAL PUBLIC LICENSE Version 3\n"
+        tdl_archive = make_tdl_archive(tdl_binary, tdl_license)
+        fetched_urls: list[str] = []
+
+        def fetcher(url: str) -> bytes:
+            fetched_urls.append(url)
+            return tdl_archive
+
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            mock.patch.object(
+                builder, "vendor_entries", return_value=fake_vendor_entries()
+            ),
+            patch_full_arch_sha(
+                builder,
+                "aarch64_generic",
+                hashlib.sha256(tdl_archive).hexdigest(),
+            ),
+        ):
+            ipk_path = builder.build_full_ipk(
+                root,
+                Path(tmp),
+                architecture="aarch64",
+                fetcher=fetcher,
+            )
+
+            self.assertEqual(
+                ipk_path.name,
+                "tg-downloader-ui-full_0.1.0_aarch64_generic.ipk",
+            )
+            members = read_outer_tar_members(ipk_path)
+            control_tar = tarfile.open(
+                fileobj=io.BytesIO(members["control.tar.gz"]), mode="r:gz"
+            )
+            control = control_tar.extractfile("./control").read().decode("utf-8")
+            self.assertIn("Package: tg-downloader-ui-full", control)
+            self.assertIn("Architecture: aarch64_generic", control)
+            self.assertIn("Conflicts: tg-downloader-ui", control)
+            self.assertIn("Provides: tg-downloader-ui", control)
+            self.assertIn("Complete aarch64 Telegram download Web UI", control)
+            self.assertIn("License: MIT AND AGPL-3.0-only", control)
+
+            data_tar = tarfile.open(
+                fileobj=io.BytesIO(members["data.tar.gz"]), mode="r:gz"
+            )
+            tdl_path = "./usr/bin/tdl"
+            notice_path = (
+                "./usr/share/licenses/tg-downloader-ui-full/tdl-NOTICE.txt"
+            )
+            self.assertEqual(data_tar.extractfile(tdl_path).read(), tdl_binary)
+            notice = data_tar.extractfile(notice_path).read().decode("utf-8")
+            self.assertIn("tdl_Linux_arm64.tar.gz", notice)
+            self.assertIn("Version: 0.20.3", notice)
+            self.assertTrue(
+                any("tdl_Linux_arm64.tar.gz" in url for url in fetched_urls)
+            )
+            self.assertFalse(
+                any("tdl_Linux_64bit.tar.gz" in url for url in fetched_urls)
+            )
 
     def test_vendor_entries_map_packages_and_licenses(self):
         builder = load_builder()
@@ -609,7 +723,70 @@ exit 99
 
         build_generic.assert_called_once()
         build_full.assert_called_once()
+        # Default path must request x86_64 full only.
+        self.assertEqual(
+            build_full.call_args.kwargs.get("architecture", "x86_64"), "x86_64"
+        )
         build_meta.assert_called_once()
+
+    def test_main_builds_selected_full_arches(self):
+        builder = load_builder()
+        generic = Path("dist/openwrt/tg-downloader-ui_0.1.0_all.ipk")
+        full_x86 = Path("dist/openwrt/tg-downloader-ui-full_0.1.0_x86_64.ipk")
+        full_arm = Path(
+            "dist/openwrt/tg-downloader-ui-full_0.1.0_aarch64_generic.ipk"
+        )
+        meta = Path("dist/openwrt/app-meta-tg-downloader-ui_0.1.0-r1_all.ipk")
+        full_paths = {
+            "x86_64": full_x86,
+            "aarch64_generic": full_arm,
+        }
+
+        def build_full_side_effect(root, output_dir, version=None, architecture="x86_64", fetcher=None):
+            return full_paths[architecture]
+
+        with (
+            mock.patch(
+                "sys.argv",
+                ["build_openwrt_ipk.py", "--full-arch", "aarch64", "--full-arch", "x86_64"],
+            ),
+            mock.patch.object(builder, "build_ipk", return_value=generic),
+            mock.patch.object(
+                builder, "build_full_ipk", side_effect=build_full_side_effect
+            ) as build_full,
+            mock.patch.object(builder, "build_meta_ipk", return_value=meta),
+        ):
+            self.assertEqual(builder.main(), 0)
+
+        arches = [
+            call.kwargs.get("architecture", call.args[3] if len(call.args) > 3 else None)
+            for call in build_full.call_args_list
+        ]
+        # Order follows normalize_full_arch_list input order after alias expand.
+        self.assertEqual(arches, ["aarch64_generic", "x86_64"])
+
+    def test_main_full_arch_all_builds_every_profile(self):
+        builder = load_builder()
+        generic = Path("dist/openwrt/tg-downloader-ui_0.1.0_all.ipk")
+        meta = Path("dist/openwrt/app-meta-tg-downloader-ui_0.1.0-r1_all.ipk")
+
+        def build_full_side_effect(root, output_dir, version=None, architecture="x86_64", fetcher=None):
+            return output_dir / f"tg-downloader-ui-full_0.1.0_{architecture}.ipk"
+
+        with (
+            mock.patch("sys.argv", ["build_openwrt_ipk.py", "--full-arch", "all"]),
+            mock.patch.object(builder, "build_ipk", return_value=generic),
+            mock.patch.object(
+                builder, "build_full_ipk", side_effect=build_full_side_effect
+            ) as build_full,
+            mock.patch.object(builder, "build_meta_ipk", return_value=meta),
+        ):
+            self.assertEqual(builder.main(), 0)
+
+        arches = [
+            call.kwargs.get("architecture") for call in build_full.call_args_list
+        ]
+        self.assertEqual(arches, ["x86_64", "aarch64_generic"])
 
 
 if __name__ == "__main__":

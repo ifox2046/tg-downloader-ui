@@ -23,19 +23,45 @@ ARCHITECTURE = "all"
 DEPENDS = ["python3", "python3-sqlite3", "ca-bundle"]
 META_RELEASE = 1
 FULL_PACKAGE_NAME = "tg-downloader-ui-full"
-FULL_ARCHITECTURE = "x86_64"
+FULL_ARCHITECTURE = "x86_64"  # default full-package OpenWrt arch (backward compatible)
 TDL_VERSION = "0.20.3"
+TDL_SOURCE_URL = f"https://github.com/iyear/tdl/tree/v{TDL_VERSION}"
+# Backward-compatible aliases for the default x86_64 full package.
 TDL_ASSET = "tdl_Linux_64bit.tar.gz"
 TDL_URL = (
     f"https://github.com/iyear/tdl/releases/download/"
     f"v{TDL_VERSION}/{TDL_ASSET}"
 )
-TDL_SOURCE_URL = f"https://github.com/iyear/tdl/tree/v{TDL_VERSION}"
 TDL_SHA256 = "f69fe06c17f74c30a3b894b5be05c57a1b082f56b346c994025a2301b269a718"
 FULL_CLI = (
     b"#!/bin/sh\n"
     b'exec /usr/bin/python3 /usr/lib/tg-downloader-ui/app.py "$@"\n'
 )
+
+# Full-package architecture profiles: OpenWrt Architecture field + upstream tdl asset.
+# CLI tokens may alias into openwrt_arch (see resolve_full_arch_profile).
+FULL_ARCH_PROFILES: dict[str, dict[str, str]] = {
+    "x86_64": {
+        "openwrt_arch": "x86_64",
+        "tdl_asset": "tdl_Linux_64bit.tar.gz",
+        "tdl_sha256": "f69fe06c17f74c30a3b894b5be05c57a1b082f56b346c994025a2301b269a718",
+        "description_arch": "x86_64",
+    },
+    "aarch64_generic": {
+        "openwrt_arch": "aarch64_generic",
+        "tdl_asset": "tdl_Linux_arm64.tar.gz",
+        "tdl_sha256": "8398784d5b9390d26450e3e3528e2ffd0e9fe75d374f63273d0247e7ab0378b7",
+        "description_arch": "aarch64",
+    },
+}
+# CLI token aliases -> openwrt_arch key in FULL_ARCH_PROFILES.
+FULL_ARCH_ALIASES: dict[str, str] = {
+    "x86_64": "x86_64",
+    "aarch64": "aarch64_generic",
+    "aarch64_generic": "aarch64_generic",
+    "arm64": "aarch64_generic",
+}
+DEFAULT_FULL_ARCHES = ("x86_64",)
 
 
 # Ship under /usr/lib so opkg extraction always lands on a normal overlay path.
@@ -180,11 +206,34 @@ def control_text(version: str) -> str:
     )
 
 
-def full_control_text(version: str) -> str:
+def resolve_full_arch_profile(architecture: str) -> dict[str, str]:
+    """Map a CLI token or OpenWrt arch name to a full-package profile."""
+    key = FULL_ARCH_ALIASES.get(architecture, architecture)
+    profile = FULL_ARCH_PROFILES.get(key)
+    if profile is None:
+        supported = ", ".join(sorted(FULL_ARCH_ALIASES))
+        raise ValueError(
+            f"unsupported full package architecture {architecture!r}; "
+            f"supported: {supported}, all"
+        )
+    return profile
+
+
+def tdl_release_url(tdl_asset: str) -> str:
+    return (
+        f"https://github.com/iyear/tdl/releases/download/"
+        f"v{TDL_VERSION}/{tdl_asset}"
+    )
+
+
+def full_control_text(version: str, architecture: str = FULL_ARCHITECTURE) -> str:
+    profile = resolve_full_arch_profile(architecture)
+    openwrt_arch = profile["openwrt_arch"]
+    description_arch = profile["description_arch"]
     return (
         f"Package: {FULL_PACKAGE_NAME}\n"
         f"Version: {version}\n"
-        f"Architecture: {FULL_ARCHITECTURE}\n"
+        f"Architecture: {openwrt_arch}\n"
         f"Maintainer: ifox2046\n"
         f"License: MIT AND AGPL-3.0-only\n"
         f"Depends: {', '.join(DEPENDS)}\n"
@@ -192,7 +241,8 @@ def full_control_text(version: str) -> str:
         f"Provides: {PACKAGE_NAME}\n"
         f"Section: net\n"
         f"Priority: optional\n"
-        f"Description: Complete x86_64 Telegram download Web UI with tdl {TDL_VERSION}.\n"
+        f"Description: Complete {description_arch} Telegram download Web UI "
+        f"with tdl {TDL_VERSION}.\n"
     )
 
 
@@ -336,10 +386,16 @@ def control_tar(version: str) -> bytes:
     )
 
 
-def full_control_tar(version: str) -> bytes:
+def full_control_tar(
+    version: str, architecture: str = FULL_ARCHITECTURE
+) -> bytes:
     return tar_gz(
         [
-            ("./control", full_control_text(version).encode("utf-8"), 0o644),
+            (
+                "./control",
+                full_control_text(version, architecture).encode("utf-8"),
+                0o644,
+            ),
             ("./postinst", POSTINST.encode("utf-8"), 0o755),
             ("./prerm", PRERM.encode("utf-8"), 0o755),
             ("./postrm", POSTRM.encode("utf-8"), 0o755),
@@ -387,21 +443,27 @@ def archive_files(payload: bytes, archive_type: str) -> dict[str, bytes]:
     raise ValueError(f"unsupported vendor archive: {archive_type}")
 
 
-def tdl_notice_text() -> str:
+def tdl_notice_text(architecture: str = FULL_ARCHITECTURE) -> str:
+    profile = resolve_full_arch_profile(architecture)
+    release_url = tdl_release_url(profile["tdl_asset"])
     return (
         "iyear/tdl\n"
         f"Version: {TDL_VERSION}\n"
         f"Source tag: {TDL_SOURCE_URL}\n"
-        f"Release archive: {TDL_URL}\n"
+        f"Release archive: {release_url}\n"
         "License: GNU Affero General Public License v3.0\n"
         "The bundled /usr/bin/tdl binary is unmodified from the upstream "
         "release archive.\n"
     )
 
 
-def tdl_entries(fetcher=download_bytes) -> list[tuple[str, bytes, int]]:
-    payload = fetcher(TDL_URL)
-    verify_sha256(payload, TDL_SHA256)
+def tdl_entries(
+    architecture: str = FULL_ARCHITECTURE, fetcher=download_bytes
+) -> list[tuple[str, bytes, int]]:
+    profile = resolve_full_arch_profile(architecture)
+    release_url = tdl_release_url(profile["tdl_asset"])
+    payload = fetcher(release_url)
+    verify_sha256(payload, profile["tdl_sha256"])
     files = archive_files(payload, "tar.gz")
 
     binaries = [
@@ -427,7 +489,7 @@ def tdl_entries(fetcher=download_bytes) -> list[tuple[str, bytes, int]]:
         (f"{license_root}/tdl-AGPL-3.0.txt", licenses[0], 0o644),
         (
             f"{license_root}/tdl-NOTICE.txt",
-            tdl_notice_text().encode("utf-8"),
+            tdl_notice_text(architecture).encode("utf-8"),
             0o644,
         ),
     ]
@@ -494,9 +556,13 @@ def data_tar(root: Path) -> bytes:
     return tar_gz(with_parent_directories(application_entries(root)))
 
 
-def full_data_tar(root: Path, fetcher=download_bytes) -> bytes:
+def full_data_tar(
+    root: Path,
+    architecture: str = FULL_ARCHITECTURE,
+    fetcher=download_bytes,
+) -> bytes:
     entries = application_entries(root)
-    entries.extend(tdl_entries(fetcher=fetcher))
+    entries.extend(tdl_entries(architecture=architecture, fetcher=fetcher))
     return tar_gz(with_parent_directories(entries))
 
 
@@ -534,19 +600,25 @@ def build_full_ipk(
     architecture: str = FULL_ARCHITECTURE,
     fetcher=download_bytes,
 ) -> Path:
-    if architecture != FULL_ARCHITECTURE:
-        raise ValueError("only architecture 'x86_64' is supported")
+    profile = resolve_full_arch_profile(architecture)
+    openwrt_arch = profile["openwrt_arch"]
     resolved_version = version or project_version(root)
     output_path = (
         output_dir
-        / f"{FULL_PACKAGE_NAME}_{resolved_version}_{architecture}.ipk"
+        / f"{FULL_PACKAGE_NAME}_{resolved_version}_{openwrt_arch}.ipk"
     )
     write_outer_tar(
         output_path,
         [
             ("debian-binary", b"2.0\n"),
-            ("data.tar.gz", full_data_tar(root, fetcher=fetcher)),
-            ("control.tar.gz", full_control_tar(resolved_version)),
+            (
+                "data.tar.gz",
+                full_data_tar(root, architecture=openwrt_arch, fetcher=fetcher),
+            ),
+            (
+                "control.tar.gz",
+                full_control_tar(resolved_version, architecture=openwrt_arch),
+            ),
         ],
     )
     return output_path
@@ -578,6 +650,26 @@ def build_meta_ipk(
     return output_path
 
 
+def normalize_full_arch_list(tokens: list[str] | None) -> list[str]:
+    """Expand CLI --full-arch tokens into ordered unique openwrt_arch names."""
+    if not tokens:
+        return list(DEFAULT_FULL_ARCHES)
+    resolved: list[str] = []
+    seen: set[str] = set()
+    for token in tokens:
+        if token == "all":
+            for openwrt_arch in FULL_ARCH_PROFILES:
+                if openwrt_arch not in seen:
+                    resolved.append(openwrt_arch)
+                    seen.add(openwrt_arch)
+            continue
+        openwrt_arch = resolve_full_arch_profile(token)["openwrt_arch"]
+        if openwrt_arch not in seen:
+            resolved.append(openwrt_arch)
+            seen.add(openwrt_arch)
+    return resolved
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Build OpenWRT .ipk package")
     parser.add_argument(
@@ -594,6 +686,17 @@ def main() -> int:
     )
     parser.add_argument("--version", default=None, help="override package version")
     parser.add_argument(
+        "--full-arch",
+        action="append",
+        default=None,
+        metavar="ARCH",
+        help=(
+            "full package architecture to build (repeatable). "
+            "Tokens: x86_64, aarch64, aarch64_generic, arm64, all. "
+            "Default when omitted: x86_64"
+        ),
+    )
+    parser.add_argument(
         "--skip-meta",
         action="store_true",
         help="do not build the iStore app-meta package",
@@ -603,8 +706,11 @@ def main() -> int:
     root = args.root.resolve()
     ipk = build_ipk(root, args.output_dir, version=args.version)
     print(ipk)
-    full_ipk = build_full_ipk(root, args.output_dir, version=args.version)
-    print(full_ipk)
+    for architecture in normalize_full_arch_list(args.full_arch):
+        full_ipk = build_full_ipk(
+            root, args.output_dir, version=args.version, architecture=architecture
+        )
+        print(full_ipk)
     if not args.skip_meta:
         meta_ipk = build_meta_ipk(root, args.output_dir, version=args.version)
         print(meta_ipk)
