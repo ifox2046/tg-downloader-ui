@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Install `python-socks` and `PySocks` with the Python package/Docker image so Telethon SOCKS proxies work.
+
 ## 0.1.0 - 2026-07-13
 
 - Add the authenticated Web UI, job history, source/path configuration, and safe first-run setup.

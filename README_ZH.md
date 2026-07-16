@@ -158,7 +158,7 @@ python -m pip install .
 tg-downloader-ui
 ```
 
-安装包包含 Telegram 授权所需的 Telethon 和 qrcode 依赖。转发器仍为可选功能：
+安装包包含 Telegram 授权所需的 Telethon、qrcode，以及代理库（`python-socks`、`PySocks`）。转发器仍为可选功能：
 
 ```sh
 tg-downloader-forwarder

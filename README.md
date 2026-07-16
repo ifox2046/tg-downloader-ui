@@ -205,8 +205,9 @@ python -m pip install .
 tg-downloader-ui
 ```
 
-The package includes the Telethon and qrcode dependencies required for
-Telegram authorization. The forwarder remains opt-in:
+The package includes Telethon, qrcode, and SOCKS proxy libraries
+(`python-socks`, `PySocks`) required for Telegram authorization through a
+proxy. The forwarder remains opt-in:
 
 ```sh
 tg-downloader-forwarder

@@ -34,9 +34,12 @@ corresponding AGPL-3.0 source-code availability and notice obligations.
 
 - Telethon 1.44.0 — MIT
 - qrcode 8.2 — BSD
+- python-socks 2.8.2 — Apache-2.0 (Telethon proxy; Docker/`pip install .`)
+- PySocks 1.7.1 — BSD (optional `socks` module; aligned with OpenWrt vendor set)
 - rsa 4.9.1 — Apache-2.0
 - pyasn1 0.6.1 — BSD-2-Clause
 - pyaes 1.6.1 — MIT
+- async-timeout 5.0.1 — Apache-2.0 (pulled for older Python / OpenWrt vendor set)
 
 The OpenWRT IPK includes these packages and installs their license texts under
 `/usr/share/licenses/tg-downloader-ui`.

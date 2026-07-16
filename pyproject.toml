@@ -22,6 +22,9 @@ classifiers = [
 dependencies = [
   "qrcode==8.2",
   "telethon==1.44.0",
+  # Telethon SOCKS/HTTP proxy support (aligned with openwrt/vendor-lock.json)
+  "python-socks[asyncio]==2.8.2",
+  "PySocks==1.7.1",
 ]
 
 [project.scripts]
