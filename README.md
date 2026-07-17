@@ -102,19 +102,41 @@ Use this when you do not want to dig message IDs out of bot chats by hand.
 4. Authorize Telethon (SMS/code or QR). This session is **independent** of the
    `tdl` login.
 5. Ensure `TGDL_FORWARDER_ENABLED=1` (Docker default). The forwarder listens to
-   enabled sources and posts video summaries into your channel.
+   enabled sources and posts media summaries into your channel.
+6. Optionally open **Telegram 授权 → 转发过滤** (Forwarder filters) to change
+   media types, caption requirement, size bounds, and keywords. Defaults match
+   historical behavior: **video only** and **require caption/text**. Saving
+   filters writes `config.json` and **restarts the forwarder** (same path as
+   the restart button).
 
-Forwarded text includes the original caption plus lines like:
+Forwarded text includes the original caption plus fixed English technical
+lines:
 
 ```text
-文件: example.mp4
-大小: 1.2 GiB
-消息ID: 26933
+File: example.mp4
+Size: 1.2 GB
+Message ID: 26933
 ```
 
-Copy the **消息ID** value into the Web UI download form (with the matching
+Copy the **Message ID** value into the Web UI download form (with the matching
 source selected). The service then runs `tdl` against the configured source
 chat and that message ID.
+
+#### Forwarder filters (`config.json`)
+
+Stored under `forwarder_filters` (missing key → defaults):
+
+| Field | Default | Meaning |
+| --- | --- | --- |
+| `media_video` | `true` | Forward video documents |
+| `media_photo` | `false` | Forward photos |
+| `media_document` | `false` | Forward non-video documents |
+| `require_text` | `true` | Skip when caption/text is empty |
+| `min_size_bytes` / `max_size_bytes` | `0` | Size bounds (`0` = no bound); UI uses MiB |
+| `include_keywords` | `[]` | If non-empty, caption/text must match any (case-insensitive) |
+| `exclude_keywords` | `[]` | Skip when any keyword matches (case-insensitive) |
+
+Skips are logged as `SKIP: <reason>` in the forwarder log.
 
 ### 5. Download
 

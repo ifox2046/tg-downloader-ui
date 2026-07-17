@@ -83,17 +83,32 @@ Web UI：选择来源 + 粘贴消息 ID
 2. 在 https://my.telegram.org 申请 `api_id` / `api_hash`。
 3. 打开「Telegram 授权」页，填写 API 凭据、可选代理、会话文件路径（Docker 默认 `/tdl/session.txt`）和频道数字 ID。
 4. 用短信验证码或二维码完成 Telethon 授权。该会话与 `tdl` 登录**相互独立**。
-5. 保持 `TGDL_FORWARDER_ENABLED=1`（Docker 默认开启）。转发器会监听已启用来源，把含视频的消息摘要发到你的频道。
+5. 保持 `TGDL_FORWARDER_ENABLED=1`（Docker 默认开启）。转发器会监听已启用来源，把媒体摘要发到你的频道。
+6. 可在「Telegram 授权 → 转发过滤」调整媒体类型、是否要求文案、体积与关键词。默认与历史行为一致：**仅视频** + **要求文案/字幕**。保存后会写入 `config.json` 并**自动重启 forwarder**（与重启按钮同一路径）。
 
-转发摘要大致包含原始文案，以及类似：
+转发摘要包含原始文案，以及固定英文技术标签：
 
 ```text
-文件: example.mp4
-大小: 1.2 GiB
-消息ID: 26933
+File: example.mp4
+Size: 1.2 GB
+Message ID: 26933
 ```
 
-把其中的 **消息ID** 复制到 Web UI 下载表单，并选择对应来源；服务会用 `tdl` 按该来源会话 + 消息 ID 下载。
+把其中的 **Message ID** 复制到 Web UI 下载表单，并选择对应来源；服务会用 `tdl` 按该来源会话 + 消息 ID 下载。
+
+#### 转发过滤（`config.json` 的 `forwarder_filters`）
+
+| 字段 | 默认 | 含义 |
+| --- | --- | --- |
+| `media_video` | `true` | 转发视频 |
+| `media_photo` | `false` | 转发图片 |
+| `media_document` | `false` | 转发非视频文档 |
+| `require_text` | `true` | 无文案/字幕则跳过 |
+| `min_size_bytes` / `max_size_bytes` | `0` | 体积上下限（`0` 表示不限制；UI 以 MiB 输入） |
+| `include_keywords` | `[]` | 非空时文案需匹配任一关键词（不区分大小写） |
+| `exclude_keywords` | `[]` | 匹配任一关键词则跳过（不区分大小写） |
+
+跳过原因会以 `SKIP: <reason>` 写入转发器日志。
 
 ### 5. 提交下载
 

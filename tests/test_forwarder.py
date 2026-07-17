@@ -24,10 +24,14 @@ class ForwarderFormattingTests(unittest.TestCase):
             self.assertEqual(stat.S_IMODE(log_path.stat().st_mode), 0o600)
             self.assertEqual(stat.S_IMODE(status_path.stat().st_mode), 0o600)
 
-    def test_format_forward_message_includes_file_size_and_message_id(self):
+    def _video_message(self, **overrides):
         message = SimpleNamespace(
             id=23311,
             text="片名：Demo Movie",
+            caption="",
+            photo=None,
+            video=None,
+            document=None,
             media=SimpleNamespace(
                 document=SimpleNamespace(
                     mime_type="video/mp4",
@@ -36,17 +40,25 @@ class ForwarderFormattingTests(unittest.TestCase):
                 )
             ),
         )
+        for key, value in overrides.items():
+            setattr(message, key, value)
+        return message
+
+    def test_format_forward_message_includes_file_size_and_message_id(self):
+        message = self._video_message()
 
         text = forwarder.format_forward_message(message, source_label="Beta Bot")
         self.assertIn("Source: Beta Bot", text)
 
         self.assertIn("片名：Demo Movie", text)
-        self.assertIn("文件: Demo.Movie.mp4", text)
-        self.assertIn("大小: 1.5 KB", text)
-        self.assertIn("消息ID: 23311", text)
+        self.assertIn("File: Demo.Movie.mp4", text)
+        self.assertIn("Size: 1.5 KB", text)
+        self.assertIn("Message ID: 23311", text)
 
     def test_format_forward_message_skips_text_only_message(self):
-        message = SimpleNamespace(id=23312, text="纯文本通知", media=None)
+        message = SimpleNamespace(
+            id=23312, text="纯文本通知", caption="", media=None, photo=None, document=None, video=None
+        )
 
         self.assertEqual(forwarder.format_forward_message(message, source_label="Beta Bot"), "")
 
@@ -54,6 +66,10 @@ class ForwarderFormattingTests(unittest.TestCase):
         message = SimpleNamespace(
             id=23313,
             text="文档说明",
+            caption="",
+            photo=None,
+            video=None,
+            document=None,
             media=SimpleNamespace(
                 document=SimpleNamespace(
                     mime_type="application/pdf",
@@ -66,20 +82,163 @@ class ForwarderFormattingTests(unittest.TestCase):
         self.assertEqual(forwarder.format_forward_message(message, source_label="Beta Bot"), "")
 
     def test_format_forward_message_skips_video_without_text(self):
-        message = SimpleNamespace(
-            id=23314,
+        message = self._video_message(text="", caption="")
+
+        self.assertEqual(forwarder.format_forward_message(message, source_label="Beta Bot"), "")
+
+    def test_normalize_forwarder_filters_defaults(self):
+        self.assertEqual(
+            forwarder.normalize_forwarder_filters(None),
+            forwarder.DEFAULT_FORWARDER_FILTERS,
+        )
+        self.assertEqual(
+            forwarder.normalize_forwarder_filters({}),
+            {
+                "media_video": True,
+                "media_photo": False,
+                "media_document": False,
+                "require_text": True,
+                "min_size_bytes": 0,
+                "max_size_bytes": 0,
+                "include_keywords": [],
+                "exclude_keywords": [],
+            },
+        )
+
+    def test_normalize_forwarder_filters_mib_and_keywords(self):
+        filters = forwarder.normalize_forwarder_filters(
+            {
+                "media_photo": True,
+                "min_size_mib": 1,
+                "max_size_mib": 2,
+                "include_keywords": "Alpha, beta\nGamma",
+                "exclude_keywords": ["Skip Me"],
+            }
+        )
+        self.assertTrue(filters["media_photo"])
+        self.assertEqual(filters["min_size_bytes"], 1024 * 1024)
+        self.assertEqual(filters["max_size_bytes"], 2 * 1024 * 1024)
+        self.assertEqual(filters["include_keywords"], ["Alpha", "beta", "Gamma"])
+        self.assertEqual(filters["exclude_keywords"], ["Skip Me"])
+
+    def test_normalize_forwarder_filters_rejects_max_below_min(self):
+        with self.assertRaisesRegex(ValueError, "max_size_bytes"):
+            forwarder.normalize_forwarder_filters(
+                {"min_size_bytes": 200, "max_size_bytes": 100}
+            )
+
+    def test_evaluate_filters_default_skips_photo_and_allows_video(self):
+        video = self._video_message()
+        ok, reason = forwarder.evaluate_forwarder_filters(video)
+        self.assertTrue(ok)
+        self.assertEqual(reason, "")
+
+        photo = SimpleNamespace(
+            id=1,
+            text="pic",
+            caption="",
+            photo=SimpleNamespace(size=100),
+            media=SimpleNamespace(photo=object()),
+            document=None,
+            video=None,
+        )
+        ok, reason = forwarder.evaluate_forwarder_filters(photo)
+        self.assertFalse(ok)
+        self.assertEqual(reason, "media_photo_disabled")
+
+    def test_evaluate_filters_photo_enabled_and_require_text_off(self):
+        filters = forwarder.normalize_forwarder_filters(
+            {"media_photo": True, "require_text": False}
+        )
+        photo = SimpleNamespace(
+            id=2,
             text="",
             caption="",
+            photo=SimpleNamespace(size=200),
+            media=SimpleNamespace(photo=object()),
+            document=None,
+            video=None,
+        )
+        ok, reason = forwarder.evaluate_forwarder_filters(photo, filters)
+        self.assertTrue(ok)
+        self.assertEqual(reason, "")
+        text = forwarder.format_forward_message(
+            photo, source_label="Cam", filters=filters
+        )
+        self.assertEqual(
+            text,
+            "Source: Cam\nFile: \nSize: 200 B\nMessage ID: 2",
+        )
+
+    def test_format_forward_message_media_only_has_no_extra_blank_lines(self):
+        message = self._video_message(text="", caption="")
+        filters = forwarder.normalize_forwarder_filters({"require_text": False})
+        text = forwarder.format_forward_message(
+            message, source_label="Beta Bot", filters=filters
+        )
+        self.assertEqual(
+            text,
+            "Source: Beta Bot\nFile: Demo.Movie.mp4\nSize: 1.5 KB\nMessage ID: 23311",
+        )
+
+    def test_evaluate_filters_document_size_and_keywords(self):
+        message = SimpleNamespace(
+            id=3,
+            text="Alpha release notes",
+            caption="",
+            photo=None,
+            video=None,
+            document=None,
             media=SimpleNamespace(
                 document=SimpleNamespace(
-                    mime_type="video/mp4",
-                    size=1536,
-                    attributes=[SimpleNamespace(file_name="Demo.Movie.mp4")],
+                    mime_type="application/pdf",
+                    size=5000,
+                    attributes=[SimpleNamespace(file_name="notes.pdf")],
                 )
             ),
         )
+        filters = forwarder.normalize_forwarder_filters(
+            {
+                "media_document": True,
+                "min_size_bytes": 1000,
+                "max_size_bytes": 10000,
+                "include_keywords": ["alpha"],
+                "exclude_keywords": [],
+            }
+        )
+        ok, reason = forwarder.evaluate_forwarder_filters(message, filters)
+        self.assertTrue(ok)
+        self.assertEqual(reason, "")
 
-        self.assertEqual(forwarder.format_forward_message(message, source_label="Beta Bot"), "")
+        too_small = forwarder.normalize_forwarder_filters(
+            {"media_document": True, "min_size_bytes": 9000}
+        )
+        ok, reason = forwarder.evaluate_forwarder_filters(message, too_small)
+        self.assertFalse(ok)
+        self.assertEqual(reason, "below_min_size")
+
+        excluded = forwarder.normalize_forwarder_filters(
+            {"media_document": True, "exclude_keywords": ["RELEASE"]}
+        )
+        ok, reason = forwarder.evaluate_forwarder_filters(message, excluded)
+        self.assertFalse(ok)
+        self.assertEqual(reason, "exclude_keyword")
+
+        missing_include = forwarder.normalize_forwarder_filters(
+            {"media_document": True, "include_keywords": ["zzz"]}
+        )
+        ok, reason = forwarder.evaluate_forwarder_filters(message, missing_include)
+        self.assertFalse(ok)
+        self.assertEqual(reason, "include_keyword")
+
+    def test_load_forwarder_filters_missing_key_uses_defaults(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config_path = Path(tmp) / "config.json"
+            config_path.write_text("{}", encoding="utf-8")
+            self.assertEqual(
+                forwarder.load_forwarder_filters(config_path),
+                forwarder.DEFAULT_FORWARDER_FILTERS,
+            )
 
     def test_load_forward_sources_reads_enabled_config_sources(self):
         with tempfile.TemporaryDirectory() as tmp:

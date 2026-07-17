@@ -570,6 +570,46 @@ class ConfigAuthTests(unittest.TestCase):
             self.assertEqual(telegram["forward_channel_id"], "-1001234567890")
             self.assertEqual(telegram["proxy"], "socks5://127.0.0.1:1080")
 
+    def test_forwarder_filters_default_and_persist(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            config = app.ConfigStore(
+                root / "state",
+                default_download_dir=root / "downloads",
+                default_user="admin",
+                default_password="test-password",
+            )
+            config.init()
+
+            defaults = config.get_forwarder_filters()
+            self.assertTrue(defaults["media_video"])
+            self.assertFalse(defaults["media_photo"])
+            self.assertFalse(defaults["media_document"])
+            self.assertTrue(defaults["require_text"])
+            self.assertEqual(defaults["min_size_bytes"], 0)
+            self.assertEqual(defaults["max_size_bytes"], 0)
+            self.assertEqual(defaults["include_keywords"], [])
+            self.assertEqual(defaults["exclude_keywords"], [])
+
+            saved = config.set_forwarder_filters(
+                {
+                    "media_photo": True,
+                    "require_text": False,
+                    "min_size_mib": 1,
+                    "include_keywords": ["foo"],
+                }
+            )
+            self.assertTrue(saved["media_photo"])
+            self.assertFalse(saved["require_text"])
+            self.assertEqual(saved["min_size_bytes"], 1024 * 1024)
+            self.assertEqual(saved["include_keywords"], ["foo"])
+            self.assertEqual(config.get_forwarder_filters()["include_keywords"], ["foo"])
+
+            with self.assertRaisesRegex(ValueError, "max_size_bytes"):
+                config.set_forwarder_filters(
+                    {"min_size_bytes": 100, "max_size_bytes": 50}
+                )
+
     def test_missing_sources_are_migrated_to_default_sources(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -742,6 +782,25 @@ class IndexTemplateTests(unittest.TestCase):
             "/api/telegram/auth/code/confirm",
             "/api/telegram/auth/qr/start",
             "/api/telegram/auth/qr/check",
+        ]:
+            self.assertIn(marker, html)
+
+    def test_index_has_forwarder_filter_controls(self):
+        html = app.INDEX_HTML
+
+        for marker in [
+            'id="filterMediaVideo"',
+            'id="filterMediaPhoto"',
+            'id="filterMediaDocument"',
+            'id="filterRequireText"',
+            'id="filterMinSizeMib"',
+            'id="filterMaxSizeMib"',
+            'id="filterIncludeKeywords"',
+            'id="filterExcludeKeywords"',
+            'id="saveForwarderFiltersBtn"',
+            "/api/forwarder/filters",
+            "fwd_filters_title",
+            "fwd_filters_saved",
         ]:
             self.assertIn(marker, html)
 
@@ -2052,6 +2111,82 @@ class AuthHttpTests(unittest.TestCase):
                 self.assertEqual(status, 200)
                 self.assertEqual(json.loads(payload)["default_source_id"], "beta_bot")
                 self.assertEqual(config.get_default_source()["id"], "beta_bot")
+            finally:
+                server.shutdown()
+                server.server_close()
+
+    def test_forwarder_filters_api_get_put_and_validation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            config = app.ConfigStore(
+                root / "state",
+                default_download_dir=root / "downloads",
+                default_user="admin",
+                default_password="test-password",
+            )
+            config.init()
+            store = JobStore(root / "state", config)
+            store.init()
+            auth = app.AuthManager(config, session_max_age_seconds=604800)
+            server = app.DownloadServer(("127.0.0.1", 0), app.RequestHandler, store, config, auth)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                port = server.server_address[1]
+
+                status, _, _ = self.request(port, "GET", "/api/forwarder/filters")
+                self.assertEqual(status, 401)
+
+                auth_headers = self.login_headers(port)
+
+                status, _, payload = self.request(
+                    port,
+                    "GET",
+                    "/api/forwarder/filters",
+                    headers=auth_headers,
+                )
+                self.assertEqual(status, 200)
+                data = json.loads(payload)
+                self.assertTrue(data["media_video"])
+                self.assertFalse(data["media_photo"])
+                self.assertTrue(data["require_text"])
+                self.assertEqual(data["min_size_mib"], 0)
+
+                with mock.patch.dict(os.environ, {"TGDL_FORWARDER_ENABLED": "0"}, clear=False):
+                    status, _, payload = self.request(
+                        port,
+                        "PUT",
+                        "/api/forwarder/filters",
+                        {
+                            "media_video": True,
+                            "media_photo": True,
+                            "media_document": False,
+                            "require_text": False,
+                            "min_size_mib": 1.5,
+                            "max_size_mib": 0,
+                            "include_keywords": ["demo"],
+                            "exclude_keywords": [],
+                        },
+                        headers=auth_headers,
+                    )
+                self.assertEqual(status, 200)
+                body = json.loads(payload)
+                self.assertTrue(body["media_photo"])
+                self.assertFalse(body["require_text"])
+                self.assertEqual(body["min_size_bytes"], int(1.5 * 1024 * 1024))
+                self.assertEqual(body["include_keywords"], ["demo"])
+                self.assertFalse(body["restarted"])
+                self.assertEqual(config.get_forwarder_filters()["include_keywords"], ["demo"])
+
+                status, _, payload = self.request(
+                    port,
+                    "PUT",
+                    "/api/forwarder/filters",
+                    {"min_size_bytes": 100, "max_size_bytes": 10},
+                    headers=auth_headers,
+                )
+                self.assertEqual(status, 400)
+                self.assertIn("max_size_bytes", payload)
             finally:
                 server.shutdown()
                 server.server_close()

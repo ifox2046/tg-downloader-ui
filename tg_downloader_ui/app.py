@@ -32,8 +32,18 @@ from pathlib import Path
 from typing import Any
 
 try:  # Package import locally, flat import on OpenWRT deployment.
+    from .forwarder import (
+        DEFAULT_FORWARDER_FILTERS,
+        forwarder_filters_for_api,
+        normalize_forwarder_filters,
+    )
     from .sources import DEFAULT_SOURCE_ID, DEFAULT_SOURCES, normalize_sources
 except ImportError:  # pragma: no cover - exercised by OpenWRT flat deployment
+    from forwarder import (  # type: ignore
+        DEFAULT_FORWARDER_FILTERS,
+        forwarder_filters_for_api,
+        normalize_forwarder_filters,
+    )
     from sources import DEFAULT_SOURCE_ID, DEFAULT_SOURCES, normalize_sources
 
 
@@ -1054,6 +1064,20 @@ class ConfigStore:
             self.data["default_source_id"] = selected_default
             self.save()
         return [dict(source) for source in sources], selected_default
+
+    def get_forwarder_filters(self) -> dict[str, Any]:
+        with self.lock:
+            try:
+                return normalize_forwarder_filters(self.data.get("forwarder_filters"))
+            except ValueError:
+                return normalize_forwarder_filters(DEFAULT_FORWARDER_FILTERS)
+
+    def set_forwarder_filters(self, raw: Any) -> dict[str, Any]:
+        filters = normalize_forwarder_filters(raw)
+        with self.lock:
+            self.data["forwarder_filters"] = filters
+            self.save()
+            return dict(filters)
 
     def set_download_dir(self, value: str | Path) -> Path:
         text = str(value or "").strip()
@@ -2297,6 +2321,22 @@ INDEX_HTML = r"""<!doctype html>
             <div class="message" id="telegramConfigMessage"></div>
           </div>
           <div class="auth-block">
+            <h3 data-i18n="fwd_filters_title">转发过滤</h3>
+            <p class="auth-note" data-i18n="fwd_filters_note">控制转发器监听哪些媒体类型、是否要求文案，以及体积/关键词过滤。保存后会自动重启 forwarder。</p>
+            <div class="telegram-grid">
+              <label class="check-row"><input id="filterMediaVideo" type="checkbox"> <span data-i18n="fwd_filter_video">视频</span></label>
+              <label class="check-row"><input id="filterMediaPhoto" type="checkbox"> <span data-i18n="fwd_filter_photo">图片</span></label>
+              <label class="check-row"><input id="filterMediaDocument" type="checkbox"> <span data-i18n="fwd_filter_document">非视频文档</span></label>
+              <label class="check-row"><input id="filterRequireText" type="checkbox"> <span data-i18n="fwd_filter_require_text">要求文案/字幕</span></label>
+              <div><label for="filterMinSizeMib" data-i18n="fwd_filter_min_mib">最小体积 (MiB，0=不限)</label><input id="filterMinSizeMib" inputmode="decimal" value="0"></div>
+              <div><label for="filterMaxSizeMib" data-i18n="fwd_filter_max_mib">最大体积 (MiB，0=不限)</label><input id="filterMaxSizeMib" inputmode="decimal" value="0"></div>
+              <div><label for="filterIncludeKeywords" data-i18n="fwd_filter_include">包含关键词（逗号/换行，空=不限）</label><textarea id="filterIncludeKeywords" rows="2"></textarea></div>
+              <div><label for="filterExcludeKeywords" data-i18n="fwd_filter_exclude">排除关键词（逗号/换行）</label><textarea id="filterExcludeKeywords" rows="2"></textarea></div>
+            </div>
+            <div class="telegram-actions"><button id="saveForwarderFiltersBtn" type="button" data-i18n="fwd_filters_save">保存过滤并重启</button></div>
+            <div class="message" id="forwarderFiltersMessage"></div>
+          </div>
+          <div class="auth-block">
             <h3 data-i18n="code_login">验证码登录</h3>
             <div class="telegram-grid">
               <div><label for="telegramPhone" data-i18n="phone">手机号</label><input id="telegramPhone" placeholder="+8613..."></div>
@@ -2437,6 +2477,19 @@ INDEX_HTML = r"""<!doctype html>
         channel_id: '转发目标频道 ID',
         telegram_proxy: 'Telegram 代理',
         save_config: '保存配置',
+        fwd_filters_title: '转发过滤',
+        fwd_filters_note: '控制转发器监听哪些媒体类型、是否要求文案，以及体积/关键词过滤。保存后会自动重启 forwarder。',
+        fwd_filter_video: '视频',
+        fwd_filter_photo: '图片',
+        fwd_filter_document: '非视频文档',
+        fwd_filter_require_text: '要求文案/字幕',
+        fwd_filter_min_mib: '最小体积 (MiB，0=不限)',
+        fwd_filter_max_mib: '最大体积 (MiB，0=不限)',
+        fwd_filter_include: '包含关键词（逗号/换行，空=不限）',
+        fwd_filter_exclude: '排除关键词（逗号/换行）',
+        fwd_filters_save: '保存过滤并重启',
+        fwd_filters_saved: '已保存；forwarder 已请求重启',
+        fwd_filters_saved_no_restart: '已保存；当前未配置或未启用 forwarder 重启',
         code_login: '验证码登录',
         phone: '手机号',
         code: '验证码',
@@ -2608,6 +2661,19 @@ INDEX_HTML = r"""<!doctype html>
         channel_id: 'Forward target channel ID',
         telegram_proxy: 'Telegram proxy',
         save_config: 'Save config',
+        fwd_filters_title: 'Forwarder filters',
+        fwd_filters_note: 'Choose media types, caption requirement, and size/keyword filters. Saving restarts the forwarder.',
+        fwd_filter_video: 'Video',
+        fwd_filter_photo: 'Photo',
+        fwd_filter_document: 'Non-video document',
+        fwd_filter_require_text: 'Require caption/text',
+        fwd_filter_min_mib: 'Min size (MiB, 0=none)',
+        fwd_filter_max_mib: 'Max size (MiB, 0=none)',
+        fwd_filter_include: 'Include keywords (comma/newline, empty=any)',
+        fwd_filter_exclude: 'Exclude keywords (comma/newline)',
+        fwd_filters_save: 'Save filters and restart',
+        fwd_filters_saved: 'Saved; forwarder restart requested',
+        fwd_filters_saved_no_restart: 'Saved; forwarder restart not configured or disabled',
         code_login: 'Code login',
         phone: 'Phone',
         code: 'Code',
@@ -2842,6 +2908,46 @@ INDEX_HTML = r"""<!doctype html>
       const data = await api('/api/telegram/config');
       lastTelegramConfig = data;
       applyTelegramConfig(data, { resetHash: true });
+    }
+    function applyForwarderFilters(data) {
+      if (!data) return;
+      document.getElementById('filterMediaVideo').checked = data.media_video !== false;
+      document.getElementById('filterMediaPhoto').checked = !!data.media_photo;
+      document.getElementById('filterMediaDocument').checked = !!data.media_document;
+      document.getElementById('filterRequireText').checked = data.require_text !== false;
+      document.getElementById('filterMinSizeMib').value = data.min_size_mib != null ? data.min_size_mib : 0;
+      document.getElementById('filterMaxSizeMib').value = data.max_size_mib != null ? data.max_size_mib : 0;
+      const include = Array.isArray(data.include_keywords) ? data.include_keywords.join('\n') : '';
+      const exclude = Array.isArray(data.exclude_keywords) ? data.exclude_keywords.join('\n') : '';
+      document.getElementById('filterIncludeKeywords').value = include;
+      document.getElementById('filterExcludeKeywords').value = exclude;
+    }
+    function parseKeywordField(value) {
+      return String(value || '').split(/[\n,]+/).map(item => item.trim()).filter(Boolean);
+    }
+    async function loadForwarderFilters() {
+      applyForwarderFilters(await api('/api/forwarder/filters'));
+    }
+    async function saveForwarderFilters() {
+      const el = document.getElementById('forwarderFiltersMessage'); el.className = 'message';
+      try {
+        const payload = {
+          media_video: document.getElementById('filterMediaVideo').checked,
+          media_photo: document.getElementById('filterMediaPhoto').checked,
+          media_document: document.getElementById('filterMediaDocument').checked,
+          require_text: document.getElementById('filterRequireText').checked,
+          min_size_mib: document.getElementById('filterMinSizeMib').value,
+          max_size_mib: document.getElementById('filterMaxSizeMib').value,
+          include_keywords: parseKeywordField(document.getElementById('filterIncludeKeywords').value),
+          exclude_keywords: parseKeywordField(document.getElementById('filterExcludeKeywords').value)
+        };
+        const data = await api('/api/forwarder/filters', {method:'PUT', body:JSON.stringify(payload)});
+        applyForwarderFilters(data);
+        if (data.restarted) { el.textContent = t('fwd_filters_saved'); }
+        else if (data.restart_error) { el.className = 'message error'; el.textContent = data.restart_error; }
+        else { el.textContent = t('fwd_filters_saved_no_restart'); }
+        refreshForwarder();
+      } catch (err) { el.className = 'message error'; el.textContent = err.message; }
     }
     async function loadSources() { const data = await api('/api/sources'); sources = data.sources || []; defaultSourceId = data.default_source_id || ''; renderSourceOptions(); renderSources(); }
     function sourceIdFrom(value) { return String(value || '').trim().replace(/^@/, '').toLowerCase().replace(/[^a-z0-9_]+/g, '_').replace(/^_+|_+$/g, '') || 'source'; }
@@ -3155,6 +3261,7 @@ INDEX_HTML = r"""<!doctype html>
     document.getElementById('saveSourcesBtn').addEventListener('click', saveSources);
     document.getElementById('saveConfigBtn').addEventListener('click', saveConfig);
     document.getElementById('saveTelegramBtn').addEventListener('click', saveTelegramConfig);
+    document.getElementById('saveForwarderFiltersBtn').addEventListener('click', saveForwarderFilters);
     document.getElementById('sendTelegramCodeBtn').addEventListener('click', sendTelegramCode);
     document.getElementById('confirmTelegramCodeBtn').addEventListener('click', confirmTelegramCode);
     document.getElementById('startTelegramQrBtn').addEventListener('click', startTelegramQr);
@@ -3182,7 +3289,7 @@ INDEX_HTML = r"""<!doctype html>
     bindLangSwitch();
     applyI18n(resolveLang());
     showPage((location.hash || '#downloads').slice(1));
-    loadMe(); loadConfig(); loadTelegramConfig(); loadSources(); refreshAll(); setInterval(refreshAll, 2500);
+    loadMe(); loadConfig(); loadTelegramConfig(); loadForwarderFilters(); loadSources(); refreshAll(); setInterval(refreshAll, 2500);
   </script>
 </body>
 </html>
@@ -4714,6 +4821,10 @@ class RequestHandler(BaseHTTPRequestHandler):
             return self.send_json(forwarder_status_response())
         if parsed.path == "/api/forwarder/log":
             return self.send_text(tail_text_file(STATE_DIR / "forwarder.log"))
+        if parsed.path == "/api/forwarder/filters":
+            return self.send_json(
+                forwarder_filters_for_api(self.config_store.get_forwarder_filters())
+            )
         if parsed.path == "/api/tdl/login/status":
             return self.send_json(tdl_login_status())
         if parsed.path == "/api/tdl/login/qr/status":
@@ -5042,6 +5153,26 @@ class RequestHandler(BaseHTTPRequestHandler):
                 return self.send_json(
                     {"sources": sources, "default_source_id": default_source_id}
                 )
+            except Exception as exc:  # noqa: BLE001 - API boundary
+                return self.send_error_text(HTTPStatus.BAD_REQUEST, str(exc))
+        if parsed.path == "/api/forwarder/filters":
+            try:
+                payload = self.read_json()
+                filters = self.config_store.set_forwarder_filters(payload)
+                response: dict[str, Any] = forwarder_filters_for_api(filters)
+                restart_result: dict[str, Any] | None = None
+                restart_error = ""
+                if forwarder_enabled() and forwarder_restart_configured():
+                    try:
+                        restart_result = restart_forwarder()
+                    except RuntimeError as exc:
+                        restart_error = str(exc)
+                response["restart"] = restart_result
+                response["restart_error"] = restart_error
+                response["restarted"] = bool(restart_result and restart_result.get("ok"))
+                return self.send_json(response)
+            except ValueError as exc:
+                return self.send_error_text(HTTPStatus.BAD_REQUEST, str(exc))
             except Exception as exc:  # noqa: BLE001 - API boundary
                 return self.send_error_text(HTTPStatus.BAD_REQUEST, str(exc))
         return self.send_error_text(HTTPStatus.NOT_FOUND, "not found")

@@ -6,6 +6,7 @@
 - Install `python-socks` and `PySocks` with the Python package/Docker image so Telethon SOCKS proxies work.
 - Document the recommended bot → private channel → message-ID download workflow in README (EN/ZH).
 - Add Web UI Chinese/English language switch (`localStorage` + browser language default).
+- Add configurable forwarder filters (`forwarder_filters` in `config.json`): media type toggles, require caption/text, size bounds, include/exclude keywords; Web UI + API with auto restart; channel summary labels fixed as `File` / `Size` / `Message ID`.
 
 ## 0.1.0 - 2026-07-13
 
