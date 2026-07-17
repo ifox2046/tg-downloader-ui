@@ -4,6 +4,7 @@
 
 - Install `python-socks` and `PySocks` with the Python package/Docker image so Telethon SOCKS proxies work.
 - Document the recommended bot → private channel → message-ID download workflow in README (EN/ZH).
+- Add Web UI Chinese/English language switch (`localStorage` + browser language default).
 
 ## 0.1.0 - 2026-07-13
 

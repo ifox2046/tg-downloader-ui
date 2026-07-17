@@ -625,8 +625,12 @@ class IndexTemplateTests(unittest.TestCase):
     def test_forwarder_restart_requires_browser_confirmation(self):
         html = app.INDEX_HTML
 
-        self.assertIn("confirm('确认重启 forwarder？')", html)
-        self.assertLess(html.index("confirm('确认重启 forwarder？')"), html.index("/api/forwarder/restart"))
+        self.assertIn("confirm(t('confirm_restart_forwarder'))", html)
+        self.assertIn("confirm_restart_forwarder: '确认重启 forwarder？'", html)
+        self.assertLess(
+            html.index("confirm(t('confirm_restart_forwarder'))"),
+            html.index("/api/forwarder/restart"),
+        )
 
     def test_index_has_telegram_code_and_qr_authorization_controls(self):
         html = app.INDEX_HTML
@@ -689,19 +693,46 @@ class IndexTemplateTests(unittest.TestCase):
         html = app.INDEX_HTML
 
         for marker in [
-            "paused:'已暂停'",
-            "canceled:'已取消'",
+            "paused: t('status_paused')",
+            "canceled: t('status_canceled')",
+            "status_paused: '已暂停'",
+            "status_canceled: '已取消'",
             "function pauseJob(id)",
             "function resumeJob(id)",
             "/api/jobs/${id}/pause",
             "/api/jobs/${id}/resume",
-            "onclick=\"pauseJob(${job.id})\">暂停</button>",
-            "onclick=\"resumeJob(${job.id})\">继续</button>",
+            "onclick=\"pauseJob(${job.id})\">${t('pause')}",
+            "onclick=\"resumeJob(${job.id})\">${t('resume')}",
+            "pause: '暂停'",
+            "resume: '继续'",
         ]:
             self.assertIn(marker, html)
 
         self.assertNotIn("onclick=\"cancelJob(${job.id})\">取消</button>", html)
         self.assertNotIn("onclick=\"retryJob(${job.id})\">重试</button>", html)
+
+    def test_index_has_client_side_i18n_language_switch(self):
+        html = app.INDEX_HTML
+
+        for marker in [
+            "const I18N",
+            "function resolveLang()",
+            "function t(key)",
+            "function applyI18n(lang)",
+            "tgdl_lang",
+            'class="lang-switch"',
+            'data-lang="zh"',
+            'data-lang="en"',
+            'data-i18n="nav_downloads"',
+            "lastTelegramConfig",
+            "applyTelegramConfig",
+            "function onI18nApplied()",
+        ]:
+            self.assertIn(marker, html)
+
+        # Language switch must re-apply server-derived Telegram labels without wiping hash input.
+        self.assertIn("applyTelegramConfig(lastTelegramConfig, { resetHash: false })", html)
+        self.assertLess(html.index("function onI18nApplied()"), html.index("applyTelegramConfig(lastTelegramConfig"))
 
     def test_login_visible_labels_are_chinese(self):
         html = app.LOGIN_HTML
@@ -709,8 +740,9 @@ class IndexTemplateTests(unittest.TestCase):
         for label in ["登录 - Telegram 下载管理", "Telegram 下载管理", "管理员", "密码", "登录"]:
             self.assertIn(label, html)
 
-        for old_label in [">Admin<", ">Password<", ">Login<", "Login failed"]:
+        for old_label in [">Admin<", ">Password<", ">Login<", "|| 'Login failed'"]:
             self.assertNotIn(old_label, html)
+        self.assertIn("login_failed: '登录失败'", html)
 
     def test_login_uses_media_control_center_shell(self):
         html = app.LOGIN_HTML

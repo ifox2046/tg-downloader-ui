@@ -24,6 +24,16 @@ proxy or VPN when remote access is required.
 The forwarder is only needed if you want this service to listen for messages
 and forward summaries into your own channel.
 
+## Language
+
+The Web UI supports **Chinese** and **English**. Use the **中文 | EN** control
+in the header (also on the login and first-run setup pages). The choice is
+stored in browser `localStorage` (`tgdl_lang`). With no saved preference, the
+UI follows `navigator.languages` (`zh*` / `en*`) and otherwise defaults to
+Chinese. Server API error text stays English; the client shows those messages
+as returned. Forwarder channel summary labels (`File` / `Size` / `Message ID`)
+are fixed English and are not re-localized by the UI switch.
+
 ## Recommended workflow (bot → private channel → message ID download)
 
 This is the intended end-to-end path for most operators:

@@ -1794,7 +1794,7 @@ INDEX_HTML = r"""<!doctype html>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Telegram 下载管理</title>
+  <title data-i18n-title="doc_title_index">Telegram 下载管理</title>
   <style>
     :root { color-scheme: light; --bg:#ece8df; --panel:#fffdf8; --panel-soft:#f7f3ea; --line:#d9d2c5; --line-strong:#c7beae; --text:#202927; --muted:#68736f; --accent:#2b6f66; --accent-dark:#1f554f; --accent-soft:#dcebe7; --warn:#8b651d; --bad:#a64235; --good:#2d7048; --soft:#f1ede4; --side:#172320; --side-2:#22332f; --side-muted:#bdc9c4; --focus:rgba(43,111,102,.16); --shadow:0 12px 34px rgba(49,43,34,.10); font-family:system-ui,"Segoe UI","PingFang SC","Microsoft YaHei","Noto Sans SC",Arial,sans-serif; font-variant-numeric:tabular-nums; }
     * { box-sizing: border-box; }
@@ -1903,6 +1903,12 @@ INDEX_HTML = r"""<!doctype html>
     .dir-row:hover { background:#f0f4ec; }
     .dir-name { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
     .dir-writable { color:var(--muted); font-size:12px; font-weight:700; }
+
+    .lang-switch { display:inline-flex; gap:4px; align-items:center; }
+    .lang-btn { min-height:28px; padding:0 10px; font-size:12px; border-radius:999px; background:#fbfaf6; color:var(--text); border:1px solid var(--line-strong); box-shadow:none; }
+    .lang-btn:hover { border-color:var(--accent); background:var(--panel-soft); }
+    .lang-btn.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+    .top .lang-switch { margin-right:2px; }
     @media (max-width:900px) {
       .app-shell { grid-template-columns:1fr; }
       .sidebar { position:sticky; top:0; z-index:5; flex-direction:row; align-items:center; gap:10px; padding:10px; border-right:0; border-bottom:1px solid #0d130f; }
@@ -1921,48 +1927,48 @@ INDEX_HTML = r"""<!doctype html>
 <body>
   <div class="app-shell">
     <aside class="sidebar">
-      <div class="brand"><div class="brand-main"><span class="mark">TG</span><span>TG 下载中控</span></div><small>媒体归档服务</small></div>
-      <nav class="nav-list" aria-label="主菜单">
-        <button class="nav-item active" data-page="downloads" type="button">下载任务</button>
-        <button class="nav-item" data-page="paths" type="button">路径设置</button>
-        <button class="nav-item" data-page="sources" type="button">资源来源</button>
-        <button class="nav-item" data-page="telegram" type="button">Telegram 授权</button>
-        <button class="nav-item" data-page="password" type="button">密码管理</button>
+      <div class="brand"><div class="brand-main"><span class="mark">TG</span><span data-i18n="brand_name">TG 下载中控</span></div><small data-i18n="brand_sub">媒体归档服务</small></div>
+      <nav class="nav-list" data-i18n-aria="nav_main" aria-label="主菜单">
+        <button class="nav-item active" data-page="downloads" type="button" data-i18n="nav_downloads">下载任务</button>
+        <button class="nav-item" data-page="paths" type="button" data-i18n="nav_paths">路径设置</button>
+        <button class="nav-item" data-page="sources" type="button" data-i18n="nav_sources">资源来源</button>
+        <button class="nav-item" data-page="telegram" type="button" data-i18n="nav_telegram">Telegram 授权</button>
+        <button class="nav-item" data-page="password" type="button" data-i18n="nav_password">密码管理</button>
       </nav>
-      <div class="sidebar-footer"><button class="secondary" id="logoutBtn" type="button">退出登录</button></div>
+      <div class="sidebar-footer"><button class="secondary" id="logoutBtn" type="button" data-i18n="logout">退出登录</button></div>
     </aside>
     <main class="content">
-      <header class="content-header"><div><div class="eyebrow">媒体归档工作台</div><h1 id="pageTitle">下载任务</h1></div><div class="top"><span class="pill" id="userLabel"></span><span class="pill mono" id="clock"></span></div></header>
+      <header class="content-header"><div><div class="eyebrow" data-i18n="eyebrow">媒体归档工作台</div><h1 id="pageTitle">下载任务</h1></div><div class="top"><div class="lang-switch" role="group" aria-label="Language"><button type="button" class="lang-btn" data-lang="zh">中文</button><button type="button" class="lang-btn" data-lang="en">EN</button></div><span class="pill" id="userLabel"></span><span class="pill mono" id="clock"></span></div></header>
 
       <section class="page active" id="page-downloads">
         <section class="workbench">
           <section class="panel pad">
-            <h2>提交下载</h2>
+            <h2 data-i18n="submit_title">提交下载</h2>
             <div class="submit-band">
-              <div><label for="sourceSelect">资源来源</label><select id="sourceSelect"></select></div>
-              <div><label for="messageIds">消息 ID</label><textarea id="messageIds" aria-label="消息 ID" placeholder="23311"></textarea></div>
-              <button id="submitBtn" type="button">提交下载</button>
+              <div><label for="sourceSelect" data-i18n="source_label">资源来源</label><select id="sourceSelect"></select></div>
+              <div><label for="messageIds" data-i18n="message_ids">消息 ID</label><textarea id="messageIds" data-i18n-aria="message_ids" aria-label="消息 ID" placeholder="23311"></textarea></div>
+              <button id="submitBtn" type="button" data-i18n="submit_btn">提交下载</button>
             </div>
             <div class="message" id="submitMessage"></div>
           </section>
           <aside class="panel pad">
-            <span class="pill">当前活动</span>
-            <h2>媒体下载队列</h2>
-            <p class="muted">任务会按媒体信息写入 Movies、TV 或普通文件目录。暂停后的任务可继续下载。</p>
+            <span class="pill" data-i18n="activity_pill">当前活动</span>
+            <h2 data-i18n="queue_aside_title">媒体下载队列</h2>
+            <p class="muted" data-i18n="queue_aside_desc">任务会按媒体信息写入 Movies、TV 或普通文件目录。暂停后的任务可继续下载。</p>
           </aside>
         </section>
-        <section class="band"><div class="band-head"><div><h2>转发监控</h2><p>监听来源、转发统计和 forwarder 状态。</p></div></div><div class="forwarder-grid" id="forwarderStatus"></div></section>
+        <section class="band"><div class="band-head"><div><h2 data-i18n="forwarder_title">转发监控</h2><p data-i18n="forwarder_desc">监听来源、转发统计和 forwarder 状态。</p></div></div><div class="forwarder-grid" id="forwarderStatus"></div></section>
         <section class="band summary" id="summary"></section>
-        <section class="band"><div class="band-head"><div><h2>下载队列</h2><p>保留表格密度，突出媒体标题、进度和可恢复操作。</p></div></div><div class="table-wrap"><table><thead><tr><th>任务</th><th>来源</th><th>消息</th><th>状态</th><th>片名/错误</th><th>进度</th><th>速度</th><th>PID</th><th>目录</th><th>文件</th><th>操作</th></tr></thead><tbody id="jobsBody"></tbody></table></div><div class="band-head"><div><h2>任务输出</h2><p>查看选中任务或 forwarder 的运行日志。</p></div></div><pre class="log" id="logPanel"></pre></section>
+        <section class="band"><div class="band-head"><div><h2 data-i18n="jobs_title">下载队列</h2><p data-i18n="jobs_desc">保留表格密度，突出媒体标题、进度和可恢复操作。</p></div></div><div class="table-wrap"><table><thead><tr><th data-i18n="col_job">任务</th><th data-i18n="col_source">来源</th><th data-i18n="col_message">消息</th><th data-i18n="col_status">状态</th><th data-i18n="col_title_error">片名/错误</th><th data-i18n="col_progress">进度</th><th data-i18n="col_speed">速度</th><th data-i18n="col_pid">PID</th><th data-i18n="col_dir">目录</th><th data-i18n="col_file">文件</th><th data-i18n="col_actions">操作</th></tr></thead><tbody id="jobsBody"></tbody></table></div><div class="band-head"><div><h2 data-i18n="log_title">任务输出</h2><p data-i18n="log_desc">查看选中任务或 forwarder 的运行日志。</p></div></div><pre class="log" id="logPanel"></pre></section>
       </section>
 
       <section class="page" id="page-paths">
         <section class="band">
-          <h2>下载目录</h2>
+          <h2 data-i18n="paths_title">下载目录</h2>
           <div class="form-row">
-            <div><label for="downloadDir">当前路径</label><input id="downloadDir"></div>
-            <button class="secondary" id="browseDirBtn" type="button">选择目录</button>
-            <button id="saveConfigBtn" type="button">保存</button>
+            <div><label for="downloadDir" data-i18n="current_path">当前路径</label><input id="downloadDir"></div>
+            <button class="secondary" id="browseDirBtn" type="button" data-i18n="browse_dir">选择目录</button>
+            <button id="saveConfigBtn" type="button" data-i18n="save">保存</button>
           </div>
           <div class="message" id="configMessage"></div>
         </section>
@@ -1970,9 +1976,9 @@ INDEX_HTML = r"""<!doctype html>
 
       <section class="page" id="page-sources">
         <section class="band">
-          <h2>资源来源</h2>
+          <h2 data-i18n="sources_title">资源来源</h2>
           <div id="sourceList"></div>
-          <div class="actions"><button class="secondary" id="addSourceBtn" type="button">添加来源</button><button id="saveSourcesBtn" type="button">保存</button></div>
+          <div class="actions"><button class="secondary" id="addSourceBtn" type="button" data-i18n="add_source">添加来源</button><button id="saveSourcesBtn" type="button" data-i18n="save">保存</button></div>
           <div class="message" id="sourcesMessage"></div>
         </section>
       </section>
@@ -1980,56 +1986,56 @@ INDEX_HTML = r"""<!doctype html>
       <section class="page" id="page-telegram">
         <div class="auth-layout">
         <section class="auth-group">
-          <h2>Telethon 用户授权</h2>
-          <p class="auth-note">用于转发监听和消息处理；这里生成的 Session 不会自动登录 tdl。</p>
+          <h2 data-i18n="telethon_title">Telethon 用户授权</h2>
+          <p class="auth-note" data-i18n="telethon_note">用于转发监听和消息处理；这里生成的 Session 不会自动登录 tdl。</p>
           <div class="auth-block">
-            <h3>Telegram API</h3>
+            <h3 data-i18n="telegram_api">Telegram API</h3>
             <div class="telegram-grid">
               <div><label for="telegramApiId">API ID</label><input id="telegramApiId" inputmode="numeric"></div>
-              <div><label for="telegramApiHash">API hash</label><input id="telegramApiHash" placeholder="留空保持不变"></div>
-              <div><label for="telegramSessionFile">Session 文件</label><input id="telegramSessionFile" placeholder="/etc/tg-downloader-ui/session.txt"></div>
-              <div><label for="telegramChannelId">转发目标频道 ID</label><input id="telegramChannelId" placeholder="-100..."></div>
-              <div><label for="telegramProxy">Telegram 代理</label><input id="telegramProxy" placeholder="socks5://127.0.0.1:1080"></div>
+              <div><label for="telegramApiHash">API hash</label><input id="telegramApiHash" data-i18n-placeholder="api_hash_keep" placeholder="留空保持不变"></div>
+              <div><label for="telegramSessionFile" data-i18n="session_file">Session 文件</label><input id="telegramSessionFile" placeholder="/etc/tg-downloader-ui/session.txt"></div>
+              <div><label for="telegramChannelId" data-i18n="channel_id">转发目标频道 ID</label><input id="telegramChannelId" placeholder="-100..."></div>
+              <div><label for="telegramProxy" data-i18n="telegram_proxy">Telegram 代理</label><input id="telegramProxy" placeholder="socks5://127.0.0.1:1080"></div>
             </div>
-            <div class="telegram-actions"><button id="saveTelegramBtn" type="button">保存配置</button><span class="muted" id="telegramSessionState"></span></div>
+            <div class="telegram-actions"><button id="saveTelegramBtn" type="button" data-i18n="save_config">保存配置</button><span class="muted" id="telegramSessionState"></span></div>
             <div class="message" id="telegramConfigMessage"></div>
           </div>
           <div class="auth-block">
-            <h3>验证码登录</h3>
+            <h3 data-i18n="code_login">验证码登录</h3>
             <div class="telegram-grid">
-              <div><label for="telegramPhone">手机号</label><input id="telegramPhone" placeholder="+8613..."></div>
-              <div><label for="telegramCode">验证码</label><input id="telegramCode" inputmode="numeric"></div>
-              <div><label for="telegramPassword">两步验证密码</label><input id="telegramPassword" type="password" autocomplete="one-time-code"></div>
+              <div><label for="telegramPhone" data-i18n="phone">手机号</label><input id="telegramPhone" placeholder="+8613..."></div>
+              <div><label for="telegramCode" data-i18n="code">验证码</label><input id="telegramCode" inputmode="numeric"></div>
+              <div><label for="telegramPassword" data-i18n="twofa">两步验证密码</label><input id="telegramPassword" type="password" autocomplete="one-time-code"></div>
             </div>
-            <div class="telegram-actions"><button class="secondary" id="sendTelegramCodeBtn" type="button">发送验证码</button><button id="confirmTelegramCodeBtn" type="button">确认登录</button></div>
+            <div class="telegram-actions"><button class="secondary" id="sendTelegramCodeBtn" type="button" data-i18n="send_code">发送验证码</button><button id="confirmTelegramCodeBtn" type="button" data-i18n="confirm_login">确认登录</button></div>
             <div class="message" id="telegramCodeMessage"></div>
           </div>
           <div class="auth-block">
-            <h3>二维码登录</h3>
-            <div class="telegram-actions"><button class="secondary" id="startTelegramQrBtn" type="button">生成二维码</button><button id="checkTelegramQrBtn" type="button">检查扫码状态</button></div>
+            <h3 data-i18n="qr_login">二维码登录</h3>
+            <div class="telegram-actions"><button class="secondary" id="startTelegramQrBtn" type="button" data-i18n="gen_qr">生成二维码</button><button id="checkTelegramQrBtn" type="button" data-i18n="check_qr">检查扫码状态</button></div>
             <div class="qr-box" id="telegramQr"></div>
             <div class="message" id="telegramQrMessage"></div>
           </div>
         </section>
         <section class="auth-group">
-          <h2>tdl 下载授权</h2>
-          <p class="auth-note">用于实际 Telegram 文件下载；tdl 需要单独登录，不会读取上方 Telethon Session。</p>
+          <h2 data-i18n="tdl_title">tdl 下载授权</h2>
+          <p class="auth-note" data-i18n="tdl_note">用于实际 Telegram 文件下载；tdl 需要单独登录，不会读取上方 Telethon Session。</p>
           <div class="auth-block">
-            <h3>验证码登录</h3>
+            <h3 data-i18n="code_login">验证码登录</h3>
             <div class="telegram-grid">
-              <div><label for="tdlPhone">手机号</label><input id="tdlPhone" placeholder="+8613..."></div>
-              <div><label for="tdlCode">验证码</label><input id="tdlCode" inputmode="numeric" autocomplete="one-time-code"></div>
-              <div><label for="tdlPassword">两步验证密码</label><input id="tdlPassword" type="password" autocomplete="one-time-code"></div>
+              <div><label for="tdlPhone" data-i18n="phone">手机号</label><input id="tdlPhone" placeholder="+8613..."></div>
+              <div><label for="tdlCode" data-i18n="code">验证码</label><input id="tdlCode" inputmode="numeric" autocomplete="one-time-code"></div>
+              <div><label for="tdlPassword" data-i18n="twofa">两步验证密码</label><input id="tdlPassword" type="password" autocomplete="one-time-code"></div>
             </div>
-            <div class="telegram-actions"><button class="secondary" id="startTdlCodeLoginBtn" type="button">启动验证码登录</button><button class="secondary" id="sendTdlPhoneBtn" type="button">发送手机号</button><button class="secondary" id="sendTdlCodeBtn" type="button">发送验证码</button><button id="sendTdlPasswordBtn" type="button">发送两步验证密码</button></div>
+            <div class="telegram-actions"><button class="secondary" id="startTdlCodeLoginBtn" type="button" data-i18n="start_tdl_code">启动验证码登录</button><button class="secondary" id="sendTdlPhoneBtn" type="button" data-i18n="send_phone">发送手机号</button><button class="secondary" id="sendTdlCodeBtn" type="button" data-i18n="send_code_btn">发送验证码</button><button id="sendTdlPasswordBtn" type="button" data-i18n="send_twofa">发送两步验证密码</button></div>
           </div>
           <div class="auth-block">
-            <h3>二维码登录</h3>
-            <div class="telegram-actions"><button class="secondary" id="startTdlQrLoginBtn" type="button">生成二维码</button><button id="refreshTdlQrLoginBtn" type="button">刷新状态</button></div>
+            <h3 data-i18n="qr_login">二维码登录</h3>
+            <div class="telegram-actions"><button class="secondary" id="startTdlQrLoginBtn" type="button" data-i18n="gen_qr">生成二维码</button><button id="refreshTdlQrLoginBtn" type="button" data-i18n="refresh_status">刷新状态</button></div>
             <div class="qr-box tdl-qr-box" id="tdlQr"></div>
           </div>
           <div class="auth-block">
-            <h3>tdl 输出</h3>
+            <h3 data-i18n="tdl_output">tdl 输出</h3>
             <pre class="log" id="tdlLoginOutput"></pre>
             <div class="message" id="tdlLoginMessage"></div>
           </div>
@@ -2039,11 +2045,11 @@ INDEX_HTML = r"""<!doctype html>
 
       <section class="page" id="page-password">
         <section class="band">
-          <h2>密码管理</h2>
+          <h2 data-i18n="password_title">密码管理</h2>
           <div class="password-grid">
-            <div><label for="currentPassword">当前密码</label><input id="currentPassword" type="password" autocomplete="current-password"></div>
-            <div><label for="newPassword">新密码</label><input id="newPassword" type="password" autocomplete="new-password"></div>
-            <button id="changePasswordBtn" type="button">修改密码</button>
+            <div><label for="currentPassword" data-i18n="current_password">当前密码</label><input id="currentPassword" type="password" autocomplete="current-password"></div>
+            <div><label for="newPassword" data-i18n="new_password">新密码</label><input id="newPassword" type="password" autocomplete="new-password"></div>
+            <button id="changePasswordBtn" type="button" data-i18n="change_password">修改密码</button>
           </div>
           <div class="message" id="passwordMessage"></div>
         </section>
@@ -2053,88 +2059,721 @@ INDEX_HTML = r"""<!doctype html>
 
   <div class="modal hidden" id="dirDialog" role="dialog" aria-modal="true" aria-labelledby="dirDialogTitle">
     <div class="dialog">
-      <div class="dialog-header"><h2 id="dirDialogTitle">选择目录</h2><button class="secondary" id="closeDirBtn" type="button">关闭</button></div>
+      <div class="dialog-header"><h2 id="dirDialogTitle" data-i18n="dir_dialog_title">选择目录</h2><button class="secondary" id="closeDirBtn" type="button" data-i18n="close">关闭</button></div>
       <div class="dialog-body">
         <div class="path-toolbar">
-          <button class="secondary" id="dirParentBtn" type="button">上级</button>
-          <button class="secondary" id="dirRootBtn" type="button">根目录</button>
-          <input id="dirDialogPath" aria-label="目录路径">
-          <button class="secondary" id="goDirBtn" type="button">打开</button>
+          <button class="secondary" id="dirParentBtn" type="button" data-i18n="parent_dir">上级</button>
+          <button class="secondary" id="dirRootBtn" type="button" data-i18n="root_dir">根目录</button>
+          <input id="dirDialogPath" data-i18n-aria="dir_path" aria-label="目录路径">
+          <button class="secondary" id="goDirBtn" type="button" data-i18n="open">打开</button>
         </div>
         <div class="message" id="dirMessage"></div>
         <div class="dir-list" id="dirList"></div>
       </div>
-      <div class="dialog-footer"><button id="selectDirBtn" type="button">使用当前目录</button></div>
+      <div class="dialog-footer"><button id="selectDirBtn" type="button" data-i18n="use_current_dir">使用当前目录</button></div>
     </div>
   </div>
 
   <script>
+
+    const I18N = {
+      zh: {
+        doc_title_index: 'Telegram 下载管理',
+        doc_title_setup: '初始化下载中控',
+        doc_title_login: '登录 - Telegram 下载管理',
+        brand_name: 'TG 下载中控',
+        brand_sub: '媒体归档服务',
+        nav_main: '主菜单',
+        nav_downloads: '下载任务',
+        nav_paths: '路径设置',
+        nav_sources: '资源来源',
+        nav_telegram: 'Telegram 授权',
+        nav_password: '密码管理',
+        logout: '退出登录',
+        eyebrow: '媒体归档工作台',
+        lang_zh: '中文',
+        lang_en: 'EN',
+        lang_label: '语言',
+        submit_title: '提交下载',
+        source_label: '资源来源',
+        message_ids: '消息 ID',
+        submit_btn: '提交下载',
+        activity_pill: '当前活动',
+        queue_aside_title: '媒体下载队列',
+        queue_aside_desc: '任务会按媒体信息写入 Movies、TV 或普通文件目录。暂停后的任务可继续下载。',
+        forwarder_title: '转发监控',
+        forwarder_desc: '监听来源、转发统计和 forwarder 状态。',
+        jobs_title: '下载队列',
+        jobs_desc: '保留表格密度，突出媒体标题、进度和可恢复操作。',
+        col_job: '任务',
+        col_source: '来源',
+        col_message: '消息',
+        col_status: '状态',
+        col_title_error: '片名/错误',
+        col_progress: '进度',
+        col_speed: '速度',
+        col_pid: 'PID',
+        col_dir: '目录',
+        col_file: '文件',
+        col_actions: '操作',
+        log_title: '任务输出',
+        log_desc: '查看选中任务或 forwarder 的运行日志。',
+        paths_title: '下载目录',
+        current_path: '当前路径',
+        browse_dir: '选择目录',
+        save: '保存',
+        sources_title: '资源来源',
+        add_source: '添加来源',
+        telethon_title: 'Telethon 用户授权',
+        telethon_note: '用于转发监听和消息处理；这里生成的 Session 不会自动登录 tdl。',
+        telegram_api: 'Telegram API',
+        api_hash_keep: '留空保持不变',
+        session_file: 'Session 文件',
+        channel_id: '转发目标频道 ID',
+        telegram_proxy: 'Telegram 代理',
+        save_config: '保存配置',
+        code_login: '验证码登录',
+        phone: '手机号',
+        code: '验证码',
+        twofa: '两步验证密码',
+        send_code: '发送验证码',
+        confirm_login: '确认登录',
+        qr_login: '二维码登录',
+        gen_qr: '生成二维码',
+        check_qr: '检查扫码状态',
+        tdl_title: 'tdl 下载授权',
+        tdl_note: '用于实际 Telegram 文件下载；tdl 需要单独登录，不会读取上方 Telethon Session。',
+        start_tdl_code: '启动验证码登录',
+        send_phone: '发送手机号',
+        send_code_btn: '发送验证码',
+        send_twofa: '发送两步验证密码',
+        refresh_status: '刷新状态',
+        tdl_output: 'tdl 输出',
+        password_title: '密码管理',
+        current_password: '当前密码',
+        new_password: '新密码',
+        change_password: '修改密码',
+        dir_dialog_title: '选择目录',
+        close: '关闭',
+        parent_dir: '上级',
+        root_dir: '根目录',
+        dir_path: '目录路径',
+        open: '打开',
+        use_current_dir: '使用当前目录',
+        status_queued: '排队中',
+        status_exporting: '导出中',
+        status_downloading: '下载中',
+        status_renaming: '重命名',
+        status_paused: '已暂停',
+        status_done: '已完成',
+        status_skipped: '已存在',
+        status_failed: '失败',
+        status_canceled: '已取消',
+        status_running: '运行中',
+        status_stale: '已失联',
+        status_missing: '未启动',
+        status_unknown: '未知',
+        need_login: '需要登录',
+        api_hash_saved: '已保存，留空保持不变',
+        api_hash_required: '必填',
+        session_exists: 'Session 文件已存在',
+        session_missing: 'Session 文件未生成',
+        source_name: '名称',
+        source_chat: 'tdl 会话',
+        source_forward: '转发来源',
+        enabled: '启用',
+        default: '默认',
+        remove: '移除',
+        saved: '已保存',
+        code_sent: '验证码已发送',
+        auth_done: '授权完成',
+        qr_alt: 'Telegram 登录二维码',
+        qr_need_password: '请输入两步验证密码后再次检查',
+        tdl_running_code: '按终端输出提示发送手机号、验证码或两步验证密码',
+        tdl_running_qr: '请使用 Telegram 扫描上方二维码',
+        tdl_login_done: 'tdl 登录完成',
+        confirm_tdl_qr: '开始 tdl 扫码登录？已有 tdl 登录数据可能被覆盖。',
+        confirm_tdl_code: '开始 tdl 验证码登录？已有 tdl 登录数据可能被覆盖。',
+        jobs_queued: '任务已加入队列',
+        confirm_restart_forwarder: '确认重启 forwarder？',
+        no_subdirs: '没有子目录',
+        writable: '可写',
+        readonly: '只读',
+        metric_active: '活动',
+        metric_queued: '排队',
+        metric_done: '完成',
+        metric_failed: '失败',
+        metric_paused: '暂停',
+        fwd_status: '状态',
+        fwd_source: '来源',
+        fwd_last_source: '最近来源',
+        fwd_sent: '已转发',
+        fwd_error: '错误',
+        sources_enabled: '个已启用',
+        configure_telegram: '配置 Telegram API',
+        restart_not_configured: '重启命令未配置',
+        restart: '重启',
+        log: '日志',
+        empty_jobs_title: '还没有下载任务',
+        empty_jobs_desc: '选择来源并输入消息 ID，任务会进入队列。完成后文件会按媒体信息写入归档目录。',
+        pause: '暂停',
+        resume: '继续',
+        delete: '删除',
+        setup_h1: '初始化下载中控',
+        setup_intro: '首次启动时创建管理员账号并设置下载目录。Telegram 转发器字段可以稍后在授权页补充。',
+        setup_h2: '完成初始设置',
+        setup_username: '管理员账号',
+        setup_password: '管理员密码',
+        setup_download_dir: '下载目录',
+        setup_api_id: 'Telegram API ID（仅转发器需要）',
+        setup_api_hash: 'Telegram API hash（仅转发器需要）',
+        setup_session: 'Telegram Session 文件（仅转发器需要）',
+        setup_channel: '转发目标频道 ID（仅转发器需要）',
+        setup_btn: '完成初始化',
+        setup_hint: 'Telegram 授权和 tdl 登录可以初始化后再配置。',
+        login_intro: '媒体归档服务。登录后管理下载队列、资源来源、归档目录和 Telegram 授权。',
+        login_h1: 'Telegram 下载管理',
+        login_h2: '登录下载中控',
+        login_admin: '管理员',
+        login_password: '密码',
+        login_btn: '登录',
+        login_failed: '登录失败'
+      },
+      en: {
+        doc_title_index: 'Telegram Download Manager',
+        doc_title_setup: 'Initialize Download Console',
+        doc_title_login: 'Login - Telegram Download Manager',
+        brand_name: 'TG Download Console',
+        brand_sub: 'Media archive service',
+        nav_main: 'Main menu',
+        nav_downloads: 'Downloads',
+        nav_paths: 'Paths',
+        nav_sources: 'Sources',
+        nav_telegram: 'Telegram Auth',
+        nav_password: 'Password',
+        logout: 'Log out',
+        eyebrow: 'Media archive workbench',
+        lang_zh: '中文',
+        lang_en: 'EN',
+        lang_label: 'Language',
+        submit_title: 'Submit download',
+        source_label: 'Source',
+        message_ids: 'Message IDs',
+        submit_btn: 'Submit download',
+        activity_pill: 'Active now',
+        queue_aside_title: 'Media download queue',
+        queue_aside_desc: 'Jobs write into Movies, TV, or general file folders from media metadata. Paused jobs can be resumed.',
+        forwarder_title: 'Forwarder monitor',
+        forwarder_desc: 'Watched sources, forward stats, and forwarder state.',
+        jobs_title: 'Download queue',
+        jobs_desc: 'Dense table focused on titles, progress, and recoverable actions.',
+        col_job: 'Job',
+        col_source: 'Source',
+        col_message: 'Message',
+        col_status: 'Status',
+        col_title_error: 'Title / error',
+        col_progress: 'Progress',
+        col_speed: 'Speed',
+        col_pid: 'PID',
+        col_dir: 'Directory',
+        col_file: 'File',
+        col_actions: 'Actions',
+        log_title: 'Job output',
+        log_desc: 'Logs for the selected job or the forwarder.',
+        paths_title: 'Download directory',
+        current_path: 'Current path',
+        browse_dir: 'Browse',
+        save: 'Save',
+        sources_title: 'Sources',
+        add_source: 'Add source',
+        telethon_title: 'Telethon user auth',
+        telethon_note: 'Used for forward listening and message handling. This Session does not log tdl in automatically.',
+        telegram_api: 'Telegram API',
+        api_hash_keep: 'Leave blank to keep',
+        session_file: 'Session file',
+        channel_id: 'Forward target channel ID',
+        telegram_proxy: 'Telegram proxy',
+        save_config: 'Save config',
+        code_login: 'Code login',
+        phone: 'Phone',
+        code: 'Code',
+        twofa: '2FA password',
+        send_code: 'Send code',
+        confirm_login: 'Confirm login',
+        qr_login: 'QR login',
+        gen_qr: 'Generate QR',
+        check_qr: 'Check scan status',
+        tdl_title: 'tdl download auth',
+        tdl_note: 'Used for actual Telegram file downloads. tdl needs its own login and does not read the Telethon Session above.',
+        start_tdl_code: 'Start code login',
+        send_phone: 'Send phone',
+        send_code_btn: 'Send code',
+        send_twofa: 'Send 2FA password',
+        refresh_status: 'Refresh status',
+        tdl_output: 'tdl output',
+        password_title: 'Password',
+        current_password: 'Current password',
+        new_password: 'New password',
+        change_password: 'Change password',
+        dir_dialog_title: 'Select directory',
+        close: 'Close',
+        parent_dir: 'Up',
+        root_dir: 'Root',
+        dir_path: 'Directory path',
+        open: 'Open',
+        use_current_dir: 'Use current directory',
+        status_queued: 'Queued',
+        status_exporting: 'Exporting',
+        status_downloading: 'Downloading',
+        status_renaming: 'Renaming',
+        status_paused: 'Paused',
+        status_done: 'Done',
+        status_skipped: 'Exists',
+        status_failed: 'Failed',
+        status_canceled: 'Canceled',
+        status_running: 'Running',
+        status_stale: 'Stale',
+        status_missing: 'Not started',
+        status_unknown: 'Unknown',
+        need_login: 'Login required',
+        api_hash_saved: 'Saved; leave blank to keep',
+        api_hash_required: 'Required',
+        session_exists: 'Session file exists',
+        session_missing: 'Session file not created',
+        source_name: 'Name',
+        source_chat: 'tdl chat',
+        source_forward: 'Forward source',
+        enabled: 'Enabled',
+        default: 'Default',
+        remove: 'Remove',
+        saved: 'Saved',
+        code_sent: 'Code sent',
+        auth_done: 'Authorized',
+        qr_alt: 'Telegram login QR code',
+        qr_need_password: 'Enter 2FA password and check again',
+        tdl_running_code: 'Follow terminal prompts to send phone, code, or 2FA password',
+        tdl_running_qr: 'Scan the QR code above with Telegram',
+        tdl_login_done: 'tdl login complete',
+        confirm_tdl_qr: 'Start tdl QR login? Existing tdl login data may be overwritten.',
+        confirm_tdl_code: 'Start tdl code login? Existing tdl login data may be overwritten.',
+        jobs_queued: 'Jobs queued',
+        confirm_restart_forwarder: 'Restart forwarder?',
+        no_subdirs: 'No subdirectories',
+        writable: 'Writable',
+        readonly: 'Read-only',
+        metric_active: 'Active',
+        metric_queued: 'Queued',
+        metric_done: 'Done',
+        metric_failed: 'Failed',
+        metric_paused: 'Paused',
+        fwd_status: 'Status',
+        fwd_source: 'Source',
+        fwd_last_source: 'Last source',
+        fwd_sent: 'Forwarded',
+        fwd_error: 'Error',
+        sources_enabled: 'enabled',
+        configure_telegram: 'Configure Telegram API',
+        restart_not_configured: 'Restart command not configured',
+        restart: 'Restart',
+        log: 'Log',
+        empty_jobs_title: 'No download jobs yet',
+        empty_jobs_desc: 'Pick a source and enter message IDs to queue jobs. Finished files are archived from media metadata.',
+        pause: 'Pause',
+        resume: 'Resume',
+        delete: 'Delete',
+        setup_h1: 'Initialize download console',
+        setup_intro: 'Create the admin account and download directory on first start. Telegram forwarder fields can be filled later on the auth page.',
+        setup_h2: 'Finish initial setup',
+        setup_username: 'Admin username',
+        setup_password: 'Admin password',
+        setup_download_dir: 'Download directory',
+        setup_api_id: 'Telegram API ID (forwarder only)',
+        setup_api_hash: 'Telegram API hash (forwarder only)',
+        setup_session: 'Telegram session file (forwarder only)',
+        setup_channel: 'Forward target channel ID (forwarder only)',
+        setup_btn: 'Finish setup',
+        setup_hint: 'Telegram authorization and tdl login can be configured after setup.',
+        login_intro: 'Media archive service. After login, manage the download queue, sources, archive paths, and Telegram auth.',
+        login_h1: 'Telegram Download Manager',
+        login_h2: 'Sign in to the console',
+        login_admin: 'Admin',
+        login_password: 'Password',
+        login_btn: 'Log in',
+        login_failed: 'Login failed'
+      }
+    };
+    let currentLang = 'zh';
+    function resolveLang() {
+      try {
+        const saved = localStorage.getItem('tgdl_lang');
+        if (saved === 'zh' || saved === 'en') return saved;
+      } catch (e) {}
+      const langs = (navigator.languages && navigator.languages.length) ? navigator.languages : [navigator.language || 'zh'];
+      for (const lang of langs) {
+        const low = String(lang || '').toLowerCase();
+        if (low.startsWith('zh')) return 'zh';
+        if (low.startsWith('en')) return 'en';
+      }
+      return 'zh';
+    }
+    function t(key) {
+      const pack = I18N[currentLang] || I18N.zh;
+      if (pack && pack[key] != null) return pack[key];
+      if (I18N.zh && I18N.zh[key] != null) return I18N.zh[key];
+      return key;
+    }
+    function applyI18n(lang) {
+      currentLang = (lang === 'en') ? 'en' : 'zh';
+      try { localStorage.setItem('tgdl_lang', currentLang); } catch (e) {}
+      document.documentElement.lang = currentLang === 'zh' ? 'zh-CN' : 'en';
+      document.querySelectorAll('[data-i18n]').forEach(el => {
+        const key = el.getAttribute('data-i18n');
+        if (key) el.textContent = t(key);
+      });
+      document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
+        const key = el.getAttribute('data-i18n-placeholder');
+        if (key) el.placeholder = t(key);
+      });
+      document.querySelectorAll('[data-i18n-aria]').forEach(el => {
+        const key = el.getAttribute('data-i18n-aria');
+        if (key) el.setAttribute('aria-label', t(key));
+      });
+      document.querySelectorAll('[data-i18n-title]').forEach(el => {
+        const key = el.getAttribute('data-i18n-title');
+        if (key) document.title = t(key);
+      });
+      document.querySelectorAll('.lang-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.getAttribute('data-lang') === currentLang);
+      });
+      if (typeof onI18nApplied === 'function') onI18nApplied();
+    }
+    function bindLangSwitch() {
+      document.querySelectorAll('.lang-btn').forEach(btn => {
+        btn.addEventListener('click', () => applyI18n(btn.getAttribute('data-lang')));
+      });
+    }
+
     let selectedJob = null;
     let csrfToken = '';
     let currentDir = '';
     let currentDirParent = '';
     let sources = [];
     let defaultSourceId = '';
-    const pageTitles = {downloads:'下载任务', paths:'路径设置', sources:'资源来源', telegram:'Telegram 授权', password:'密码管理'};
-    function statusLabel(status) { const labels = {queued:'排队中', exporting:'导出中', downloading:'下载中', renaming:'重命名', paused:'已暂停', done:'已完成', skipped:'已存在', failed:'失败', canceled:'已取消', running:'运行中', stale:'已失联', missing:'未启动', unknown:'未知'}; return labels[status] || status; }
+    let lastJobs = [];
+    let lastForwarderStatus = null;
+    let lastTelegramConfig = null;
+    function pageTitles() {
+      return {
+        downloads: t('nav_downloads'),
+        paths: t('nav_paths'),
+        sources: t('nav_sources'),
+        telegram: t('nav_telegram'),
+        password: t('nav_password')
+      };
+    }
+    function statusLabel(status) {
+      const labels = {
+        queued: t('status_queued'),
+        exporting: t('status_exporting'),
+        downloading: t('status_downloading'),
+        renaming: t('status_renaming'),
+        paused: t('status_paused'),
+        done: t('status_done'),
+        skipped: t('status_skipped'),
+        failed: t('status_failed'),
+        canceled: t('status_canceled'),
+        running: t('status_running'),
+        stale: t('status_stale'),
+        missing: t('status_missing'),
+        unknown: t('status_unknown')
+      };
+      return labels[status] || status;
+    }
     function escapeHtml(value) { return String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[ch])); }
-    async function api(path, options = {}) { const method = String(options.method || 'GET').toUpperCase(); const headers = {'Content-Type':'application/json', ...(options.headers || {})}; if (!['GET','HEAD'].includes(method) && csrfToken) { headers['X-CSRF-Token'] = csrfToken; } const res = await fetch(path, {...options, headers}); if (res.status === 401) { location.href = '/login'; throw new Error('需要登录'); } if (!res.ok) { const text = await res.text(); throw new Error(text || res.statusText); } const type = res.headers.get('Content-Type') || ''; return type.includes('application/json') ? res.json() : res.text(); }
-    function showPage(name) { const next = pageTitles[name] ? name : 'downloads'; document.querySelectorAll('.page').forEach(page => page.classList.toggle('active', page.id === `page-${next}`)); document.querySelectorAll('.nav-item').forEach(btn => btn.classList.toggle('active', btn.dataset.page === next)); document.getElementById('pageTitle').textContent = pageTitles[next]; if (location.hash !== `#${next}`) { history.replaceState(null, '', `#${next}`); } }
+    async function api(path, options = {}) {
+      const method = String(options.method || 'GET').toUpperCase();
+      const headers = {'Content-Type':'application/json', ...(options.headers || {})};
+      if (!['GET','HEAD'].includes(method) && csrfToken) { headers['X-CSRF-Token'] = csrfToken; }
+      const res = await fetch(path, {...options, headers});
+      if (res.status === 401) { location.href = '/login'; throw new Error(t('need_login')); }
+      if (!res.ok) { const text = await res.text(); throw new Error(text || res.statusText); }
+      const type = res.headers.get('Content-Type') || '';
+      return type.includes('application/json') ? res.json() : res.text();
+    }
+    function showPage(name) {
+      const titles = pageTitles();
+      const next = titles[name] ? name : 'downloads';
+      document.querySelectorAll('.page').forEach(page => page.classList.toggle('active', page.id === `page-${next}`));
+      document.querySelectorAll('.nav-item').forEach(btn => btn.classList.toggle('active', btn.dataset.page === next));
+      document.getElementById('pageTitle').textContent = titles[next];
+      if (location.hash !== `#${next}`) { history.replaceState(null, '', `#${next}`); }
+    }
     async function loadMe() { const data = await api('/api/auth/me'); csrfToken = data.csrf_token || ''; document.getElementById('userLabel').textContent = data.username; }
     async function loadConfig() { const data = await api('/api/config'); document.getElementById('downloadDir').value = data.download_dir || ''; }
-    async function loadTelegramConfig() { const data = await api('/api/telegram/config'); document.getElementById('telegramApiId').value = data.api_id || ''; document.getElementById('telegramApiHash').value = ''; document.getElementById('telegramApiHash').placeholder = data.api_hash_set ? '已保存，留空保持不变' : '必填'; document.getElementById('telegramSessionFile').value = data.session_file || ''; document.getElementById('telegramProxy').value = data.proxy || ''; document.getElementById('telegramChannelId').value = data.forward_channel_id || ''; document.getElementById('telegramSessionState').textContent = data.session_exists ? 'Session 文件已存在' : 'Session 文件未生成'; }
+    function applyTelegramConfig(data, { resetHash = true } = {}) {
+      if (!data) return;
+      document.getElementById('telegramApiId').value = data.api_id || '';
+      if (resetHash) document.getElementById('telegramApiHash').value = '';
+      document.getElementById('telegramApiHash').placeholder = data.api_hash_set ? t('api_hash_saved') : t('api_hash_required');
+      document.getElementById('telegramSessionFile').value = data.session_file || '';
+      document.getElementById('telegramProxy').value = data.proxy || '';
+      document.getElementById('telegramChannelId').value = data.forward_channel_id || '';
+      document.getElementById('telegramSessionState').textContent = data.session_exists ? t('session_exists') : t('session_missing');
+    }
+    async function loadTelegramConfig() {
+      const data = await api('/api/telegram/config');
+      lastTelegramConfig = data;
+      applyTelegramConfig(data, { resetHash: true });
+    }
     async function loadSources() { const data = await api('/api/sources'); sources = data.sources || []; defaultSourceId = data.default_source_id || ''; renderSourceOptions(); renderSources(); }
     function sourceIdFrom(value) { return String(value || '').trim().replace(/^@/, '').toLowerCase().replace(/[^a-z0-9_]+/g, '_').replace(/^_+|_+$/g, '') || 'source'; }
-    function renderSourceOptions() { const select = document.getElementById('sourceSelect'); select.innerHTML = sources.filter(source => source.enabled !== false).map(source => `<option value="${escapeHtml(source.id)}">${escapeHtml(source.label)} (${escapeHtml(source.chat)})</option>`).join(''); select.value = defaultSourceId || (select.options[0] ? select.options[0].value : ''); }
-    function addSourceRow(source = {}, isDefault = false) { const row = document.createElement('div'); row.className = 'source-row'; row.dataset.sourceId = source.id || ''; row.innerHTML = `<div><label>名称</label><input data-field="label" value="${escapeHtml(source.label || '')}"></div><div><label>tdl 会话</label><input data-field="chat" value="${escapeHtml(source.chat || '')}" placeholder="beta_bot"></div><div><label>转发来源</label><input data-field="forward_source" value="${escapeHtml(source.forward_source || '')}" placeholder="@beta_bot"></div><label class="check-row"><input data-field="enabled" type="checkbox" ${source.enabled === false ? '' : 'checked'}> 启用</label><label class="check-row"><input data-field="default" name="defaultSource" type="radio" ${isDefault ? 'checked' : ''}> 默认</label><button class="secondary" type="button" data-action="remove">移除</button>`; row.querySelector('[data-action="remove"]').addEventListener('click', () => { if (document.querySelectorAll('.source-row').length > 1) { row.remove(); } }); document.getElementById('sourceList').appendChild(row); }
+    function renderSourceOptions() {
+      const select = document.getElementById('sourceSelect');
+      select.innerHTML = sources.filter(source => source.enabled !== false).map(source => `<option value="${escapeHtml(source.id)}">${escapeHtml(source.label)} (${escapeHtml(source.chat)})</option>`).join('');
+      select.value = defaultSourceId || (select.options[0] ? select.options[0].value : '');
+    }
+    function addSourceRow(source = {}, isDefault = false) {
+      const row = document.createElement('div');
+      row.className = 'source-row';
+      row.dataset.sourceId = source.id || '';
+      row.innerHTML = `<div><label>${t('source_name')}</label><input data-field="label" value="${escapeHtml(source.label || '')}"></div><div><label>${t('source_chat')}</label><input data-field="chat" value="${escapeHtml(source.chat || '')}" placeholder="beta_bot"></div><div><label>${t('source_forward')}</label><input data-field="forward_source" value="${escapeHtml(source.forward_source || '')}" placeholder="@beta_bot"></div><label class="check-row"><input data-field="enabled" type="checkbox" ${source.enabled === false ? '' : 'checked'}> ${t('enabled')}</label><label class="check-row"><input data-field="default" name="defaultSource" type="radio" ${isDefault ? 'checked' : ''}> ${t('default')}</label><button class="secondary" type="button" data-action="remove">${t('remove')}</button>`;
+      row.querySelector('[data-action="remove"]').addEventListener('click', () => { if (document.querySelectorAll('.source-row').length > 1) { row.remove(); } });
+      document.getElementById('sourceList').appendChild(row);
+    }
     function renderSources() { const list = document.getElementById('sourceList'); list.innerHTML = ''; sources.forEach(source => addSourceRow(source, source.id === defaultSourceId)); if (!sources.length) { addSourceRow({}, true); } }
-    function collectSources() { const rows = Array.from(document.querySelectorAll('.source-row')); const items = rows.map(row => { const chat = row.querySelector('[data-field="chat"]').value.trim(); const id = row.dataset.sourceId || sourceIdFrom(chat || row.querySelector('[data-field="forward_source"]').value); return {id, label:row.querySelector('[data-field="label"]').value.trim() || id, chat, forward_source:row.querySelector('[data-field="forward_source"]').value.trim(), enabled:row.querySelector('[data-field="enabled"]').checked}; }); const defaultRow = rows.find(row => row.querySelector('[data-field="default"]').checked) || rows[0]; const defaultIndex = rows.indexOf(defaultRow); return {sources:items, default_source_id:items[defaultIndex] ? items[defaultIndex].id : ''}; }
-    async function saveSources() { const el = document.getElementById('sourcesMessage'); el.className = 'message'; try { const payload = collectSources(); const data = await api('/api/sources', {method:'PUT', body:JSON.stringify(payload)}); sources = data.sources || []; defaultSourceId = data.default_source_id || ''; renderSourceOptions(); renderSources(); el.textContent = '已保存'; } catch (err) { el.className = 'message error'; el.textContent = err.message; } }
-    async function saveConfig() { const el = document.getElementById('configMessage'); el.className = 'message'; try { await api('/api/config', {method:'PUT', body:JSON.stringify({download_dir:document.getElementById('downloadDir').value})}); el.textContent = '已保存'; } catch (err) { el.className = 'message error'; el.textContent = err.message; } }
-    async function saveTelegramConfig() { const el = document.getElementById('telegramConfigMessage'); el.className = 'message'; try { await api('/api/telegram/config', {method:'PUT', body:JSON.stringify({api_id:document.getElementById('telegramApiId').value, api_hash:document.getElementById('telegramApiHash').value, session_file:document.getElementById('telegramSessionFile').value, proxy:document.getElementById('telegramProxy').value, forward_channel_id:document.getElementById('telegramChannelId').value})}); await loadTelegramConfig(); el.textContent = '已保存'; } catch (err) { el.className = 'message error'; el.textContent = err.message; } }
-    async function sendTelegramCode() { const el = document.getElementById('telegramCodeMessage'); el.className = 'message'; try { await api('/api/telegram/auth/code/send', {method:'POST', body:JSON.stringify({phone:document.getElementById('telegramPhone').value})}); el.textContent = '验证码已发送'; } catch (err) { el.className = 'message error'; el.textContent = err.message; } }
-    async function confirmTelegramCode() { const el = document.getElementById('telegramCodeMessage'); el.className = 'message'; try { await api('/api/telegram/auth/code/confirm', {method:'POST', body:JSON.stringify({phone:document.getElementById('telegramPhone').value, code:document.getElementById('telegramCode').value, password:document.getElementById('telegramPassword').value})}); await loadTelegramConfig(); el.textContent = '授权完成'; } catch (err) { el.className = 'message error'; el.textContent = err.message; } }
+    function collectSources() {
+      const rows = Array.from(document.querySelectorAll('.source-row'));
+      const items = rows.map(row => {
+        const chat = row.querySelector('[data-field="chat"]').value.trim();
+        const id = row.dataset.sourceId || sourceIdFrom(chat || row.querySelector('[data-field="forward_source"]').value);
+        return {id, label:row.querySelector('[data-field="label"]').value.trim() || id, chat, forward_source:row.querySelector('[data-field="forward_source"]').value.trim(), enabled:row.querySelector('[data-field="enabled"]').checked};
+      });
+      const defaultRow = rows.find(row => row.querySelector('[data-field="default"]').checked) || rows[0];
+      const defaultIndex = rows.indexOf(defaultRow);
+      return {sources:items, default_source_id:items[defaultIndex] ? items[defaultIndex].id : ''};
+    }
+    async function saveSources() {
+      const el = document.getElementById('sourcesMessage'); el.className = 'message';
+      try { const payload = collectSources(); const data = await api('/api/sources', {method:'PUT', body:JSON.stringify(payload)}); sources = data.sources || []; defaultSourceId = data.default_source_id || ''; renderSourceOptions(); renderSources(); el.textContent = t('saved'); }
+      catch (err) { el.className = 'message error'; el.textContent = err.message; }
+    }
+    async function saveConfig() {
+      const el = document.getElementById('configMessage'); el.className = 'message';
+      try { await api('/api/config', {method:'PUT', body:JSON.stringify({download_dir:document.getElementById('downloadDir').value})}); el.textContent = t('saved'); }
+      catch (err) { el.className = 'message error'; el.textContent = err.message; }
+    }
+    async function saveTelegramConfig() {
+      const el = document.getElementById('telegramConfigMessage'); el.className = 'message';
+      try {
+        await api('/api/telegram/config', {method:'PUT', body:JSON.stringify({api_id:document.getElementById('telegramApiId').value, api_hash:document.getElementById('telegramApiHash').value, session_file:document.getElementById('telegramSessionFile').value, proxy:document.getElementById('telegramProxy').value, forward_channel_id:document.getElementById('telegramChannelId').value})});
+        await loadTelegramConfig(); el.textContent = t('saved');
+      } catch (err) { el.className = 'message error'; el.textContent = err.message; }
+    }
+    async function sendTelegramCode() {
+      const el = document.getElementById('telegramCodeMessage'); el.className = 'message';
+      try { await api('/api/telegram/auth/code/send', {method:'POST', body:JSON.stringify({phone:document.getElementById('telegramPhone').value})}); el.textContent = t('code_sent'); }
+      catch (err) { el.className = 'message error'; el.textContent = err.message; }
+    }
+    async function confirmTelegramCode() {
+      const el = document.getElementById('telegramCodeMessage'); el.className = 'message';
+      try {
+        await api('/api/telegram/auth/code/confirm', {method:'POST', body:JSON.stringify({phone:document.getElementById('telegramPhone').value, code:document.getElementById('telegramCode').value, password:document.getElementById('telegramPassword').value})});
+        await loadTelegramConfig(); el.textContent = t('auth_done');
+      } catch (err) { el.className = 'message error'; el.textContent = err.message; }
+    }
     let telegramQrToken = '';
-    function renderTelegramQr(data) { telegramQrToken = data.token || telegramQrToken; const box = document.getElementById('telegramQr'); if (data.qr_svg) { box.innerHTML = `<img alt="Telegram 登录二维码" src="${data.qr_svg}"><span class="muted">${escapeHtml(data.state || '')}</span>`; } else { box.innerHTML = data.url ? `<a href="${escapeHtml(data.url)}">${escapeHtml(data.url)}</a>` : ''; } document.getElementById('telegramQrMessage').textContent = data.error || (data.state === 'authorized' ? '授权完成' : (data.state === 'password_required' ? '请输入两步验证密码后再次检查' : '')); }
-    async function startTelegramQr() { const el = document.getElementById('telegramQrMessage'); el.className = 'message'; try { renderTelegramQr(await api('/api/telegram/auth/qr/start', {method:'POST', body:'{}'})); } catch (err) { el.className = 'message error'; el.textContent = err.message; } }
-    async function checkTelegramQr() { const el = document.getElementById('telegramQrMessage'); el.className = 'message'; try { renderTelegramQr(await api('/api/telegram/auth/qr/check', {method:'POST', body:JSON.stringify({token:telegramQrToken, password:document.getElementById('telegramPassword').value})})); await loadTelegramConfig(); } catch (err) { el.className = 'message error'; el.textContent = err.message; } }
+    function renderTelegramQr(data) {
+      telegramQrToken = data.token || telegramQrToken;
+      const box = document.getElementById('telegramQr');
+      if (data.qr_svg) { box.innerHTML = `<img alt="${escapeHtml(t('qr_alt'))}" src="${data.qr_svg}"><span class="muted">${escapeHtml(data.state || '')}</span>`; }
+      else { box.innerHTML = data.url ? `<a href="${escapeHtml(data.url)}">${escapeHtml(data.url)}</a>` : ''; }
+      document.getElementById('telegramQrMessage').textContent = data.error || (data.state === 'authorized' ? t('auth_done') : (data.state === 'password_required' ? t('qr_need_password') : ''));
+    }
+    async function startTelegramQr() {
+      const el = document.getElementById('telegramQrMessage'); el.className = 'message';
+      try { renderTelegramQr(await api('/api/telegram/auth/qr/start', {method:'POST', body:'{}'})); }
+      catch (err) { el.className = 'message error'; el.textContent = err.message; }
+    }
+    async function checkTelegramQr() {
+      const el = document.getElementById('telegramQrMessage'); el.className = 'message';
+      try { renderTelegramQr(await api('/api/telegram/auth/qr/check', {method:'POST', body:JSON.stringify({token:telegramQrToken, password:document.getElementById('telegramPassword').value})})); await loadTelegramConfig(); }
+      catch (err) { el.className = 'message error'; el.textContent = err.message; }
+    }
     let tdlLoginTimer = null;
-    function latestTdlQrOutput(output) { const text = String(output || '').trimEnd(); const index = text.lastIndexOf('Scan QR'); if (index >= 0) { return text.slice(index).trim(); } const chunks = text.split(/\n{2,}/).map(item => item.trim()).filter(Boolean); return chunks.length ? chunks[chunks.length - 1] : text; }
-    function renderTdlLogin(data) { const output = data.output || ''; const qr = latestTdlQrOutput(output); document.getElementById('tdlQr').innerHTML = data.mode === 'qr' && qr ? `<pre class="tdl-qr-text">${escapeHtml(qr)}</pre>` : ''; document.getElementById('tdlLoginOutput').textContent = data.mode === 'qr' ? '' : output; const msg = document.getElementById('tdlLoginMessage'); msg.className = data.state === 'failed' ? 'message error' : 'message'; const runningText = data.mode === 'code' ? '按终端输出提示发送手机号、验证码或两步验证密码' : '请使用 Telegram 扫描上方二维码'; msg.textContent = data.error || (data.state === 'done' ? 'tdl 登录完成' : (data.state === 'running' ? runningText : '')); if (data.state === 'running' && !tdlLoginTimer) { tdlLoginTimer = setInterval(refreshTdlLogin, 2000); } if (data.state !== 'running' && tdlLoginTimer) { clearInterval(tdlLoginTimer); tdlLoginTimer = null; } }
-    async function startTdlQrLogin() { if (!confirm('开始 tdl 扫码登录？已有 tdl 登录数据可能被覆盖。')) { return; } const el = document.getElementById('tdlLoginMessage'); el.className = 'message'; try { renderTdlLogin(await api('/api/tdl/login/qr/start', {method:'POST', body:'{}'})); } catch (err) { el.className = 'message error'; el.textContent = err.message; } }
-    async function startTdlCodeLogin() { if (!confirm('开始 tdl 验证码登录？已有 tdl 登录数据可能被覆盖。')) { return; } const el = document.getElementById('tdlLoginMessage'); el.className = 'message'; try { renderTdlLogin(await api('/api/tdl/login/code/start', {method:'POST', body:'{}'})); } catch (err) { el.className = 'message error'; el.textContent = err.message; } }
-    async function sendTdlLoginInput(inputId) { const input = document.getElementById(inputId); const el = document.getElementById('tdlLoginMessage'); el.className = 'message'; try { renderTdlLogin(await api('/api/tdl/login/input', {method:'POST', body:JSON.stringify({text:input.value})})); input.value = ''; } catch (err) { el.className = 'message error'; el.textContent = err.message; } }
-    async function refreshTdlLogin() { const el = document.getElementById('tdlLoginMessage'); try { renderTdlLogin(await api('/api/tdl/login/status')); } catch (err) { el.className = 'message error'; el.textContent = err.message; } }
+    function latestTdlQrOutput(output) {
+      const text = String(output || '').trimEnd();
+      const index = text.lastIndexOf('Scan QR');
+      if (index >= 0) { return text.slice(index).trim(); }
+      const chunks = text.split(/\n{2,}/).map(item => item.trim()).filter(Boolean);
+      return chunks.length ? chunks[chunks.length - 1] : text;
+    }
+    function renderTdlLogin(data) {
+      const output = data.output || '';
+      const qr = latestTdlQrOutput(output);
+      document.getElementById('tdlQr').innerHTML = data.mode === 'qr' && qr ? `<pre class="tdl-qr-text">${escapeHtml(qr)}</pre>` : '';
+      document.getElementById('tdlLoginOutput').textContent = data.mode === 'qr' ? '' : output;
+      const msg = document.getElementById('tdlLoginMessage');
+      msg.className = data.state === 'failed' ? 'message error' : 'message';
+      const runningText = data.mode === 'code' ? t('tdl_running_code') : t('tdl_running_qr');
+      msg.textContent = data.error || (data.state === 'done' ? t('tdl_login_done') : (data.state === 'running' ? runningText : ''));
+      if (data.state === 'running' && !tdlLoginTimer) { tdlLoginTimer = setInterval(refreshTdlLogin, 2000); }
+      if (data.state !== 'running' && tdlLoginTimer) { clearInterval(tdlLoginTimer); tdlLoginTimer = null; }
+    }
+    async function startTdlQrLogin() {
+      if (!confirm(t('confirm_tdl_qr'))) { return; }
+      const el = document.getElementById('tdlLoginMessage'); el.className = 'message';
+      try { renderTdlLogin(await api('/api/tdl/login/qr/start', {method:'POST', body:'{}'})); }
+      catch (err) { el.className = 'message error'; el.textContent = err.message; }
+    }
+    async function startTdlCodeLogin() {
+      if (!confirm(t('confirm_tdl_code'))) { return; }
+      const el = document.getElementById('tdlLoginMessage'); el.className = 'message';
+      try { renderTdlLogin(await api('/api/tdl/login/code/start', {method:'POST', body:'{}'})); }
+      catch (err) { el.className = 'message error'; el.textContent = err.message; }
+    }
+    async function sendTdlLoginInput(inputId) {
+      const input = document.getElementById(inputId);
+      const el = document.getElementById('tdlLoginMessage'); el.className = 'message';
+      try { renderTdlLogin(await api('/api/tdl/login/input', {method:'POST', body:JSON.stringify({text:input.value})})); input.value = ''; }
+      catch (err) { el.className = 'message error'; el.textContent = err.message; }
+    }
+    async function refreshTdlLogin() {
+      const el = document.getElementById('tdlLoginMessage');
+      try { renderTdlLogin(await api('/api/tdl/login/status')); }
+      catch (err) { el.className = 'message error'; el.textContent = err.message; }
+    }
     async function refreshTdlQrLogin() { return refreshTdlLogin(); }
-    async function changePassword() { const el = document.getElementById('passwordMessage'); el.className = 'message'; try { await api('/api/auth/password', {method:'POST', body:JSON.stringify({current_password:document.getElementById('currentPassword').value, new_password:document.getElementById('newPassword').value})}); location.href = '/login'; } catch (err) { el.className = 'message error'; el.textContent = err.message; } }
+    async function changePassword() {
+      const el = document.getElementById('passwordMessage'); el.className = 'message';
+      try {
+        await api('/api/auth/password', {method:'POST', body:JSON.stringify({current_password:document.getElementById('currentPassword').value, new_password:document.getElementById('newPassword').value})});
+        location.href = '/login';
+      } catch (err) { el.className = 'message error'; el.textContent = err.message; }
+    }
     async function logout() { await api('/api/auth/logout', {method:'POST', body:'{}'}); location.href = '/login'; }
-    async function submitJobs() { const btn = document.getElementById('submitBtn'); const msg = document.getElementById('submitMessage'); btn.disabled = true; msg.className = 'message'; msg.textContent = ''; try { await api('/api/jobs', {method:'POST', body:JSON.stringify({message_ids:document.getElementById('messageIds').value, source_id:document.getElementById('sourceSelect').value})}); document.getElementById('messageIds').value = ''; msg.className = 'message good'; msg.textContent = '任务已加入队列'; await refreshJobs(); } catch (err) { msg.className = 'message error'; msg.textContent = err.message; } finally { btn.disabled = false; } }
+    async function submitJobs() {
+      const btn = document.getElementById('submitBtn');
+      const msg = document.getElementById('submitMessage');
+      btn.disabled = true; msg.className = 'message'; msg.textContent = '';
+      try {
+        await api('/api/jobs', {method:'POST', body:JSON.stringify({message_ids:document.getElementById('messageIds').value, source_id:document.getElementById('sourceSelect').value})});
+        document.getElementById('messageIds').value = '';
+        msg.className = 'message good'; msg.textContent = t('jobs_queued');
+        await refreshJobs();
+      } catch (err) { msg.className = 'message error'; msg.textContent = err.message; }
+      finally { btn.disabled = false; }
+    }
     async function resumeJob(id) { await api(`/api/jobs/${id}/resume`, {method:'POST', body:'{}'}); await refreshJobs(); }
     async function pauseJob(id) { await api(`/api/jobs/${id}/pause`, {method:'POST', body:'{}'}); await refreshJobs(); }
     async function retryJob(id) { await resumeJob(id); }
     async function cancelJob(id) { await pauseJob(id); }
-    async function deleteJob(id) { await api(`/api/jobs/${id}`, {method:'DELETE'}); if (selectedJob === id) { selectedJob = null; document.getElementById('logPanel').textContent = ''; } await refreshJobs(); }
+    async function deleteJob(id) {
+      await api(`/api/jobs/${id}`, {method:'DELETE'});
+      if (selectedJob === id) { selectedJob = null; document.getElementById('logPanel').textContent = ''; }
+      await refreshJobs();
+    }
     async function loadLog(id) { selectedJob = id; document.getElementById('logPanel').textContent = await api(`/api/jobs/${id}/log`) || ''; }
     async function loadForwarderLog() { selectedJob = null; document.getElementById('logPanel').textContent = await api('/api/forwarder/log') || ''; }
-    async function restartForwarder() { if (!confirm('确认重启 forwarder？')) { return; } selectedJob = null; try { const data = await api('/api/forwarder/restart', {method:'POST', body:'{}'}); const output = [data.stdout || '', data.stderr || ''].filter(Boolean).join('\n').trim(); document.getElementById('logPanel').textContent = output || 'forwarder restart requested'; await refreshForwarder(); } catch (err) { alert(err.message); } }
-    async function openDirectory(path) { const msg = document.getElementById('dirMessage'); msg.className = 'message'; msg.textContent = ''; try { const data = await api(`/api/fs/dirs?path=${encodeURIComponent(path || '')}`); renderDirectory(data); } catch (err) { msg.className = 'message error'; msg.textContent = err.message; } }
-    function renderDirectory(data) { currentDir = data.path || ''; currentDirParent = data.parent || ''; document.getElementById('dirDialogPath').value = currentDir; document.getElementById('dirParentBtn').disabled = !currentDirParent; const list = document.getElementById('dirList'); list.innerHTML = ''; if (!data.entries.length) { const empty = document.createElement('div'); empty.className = 'dir-row muted'; empty.textContent = '没有子目录'; list.appendChild(empty); return; } data.entries.forEach(entry => { const row = document.createElement('button'); row.className = 'dir-row'; row.type = 'button'; const name = document.createElement('span'); name.className = 'dir-name'; name.textContent = entry.name; const flag = document.createElement('span'); flag.className = 'dir-writable'; flag.textContent = entry.writable ? '可写' : '只读'; row.append(name, flag); row.addEventListener('click', () => openDirectory(entry.path)); list.appendChild(row); }); }
-    async function openDirectoryDialog() { document.getElementById('dirDialog').classList.remove('hidden'); await openDirectory(document.getElementById('downloadDir').value); document.getElementById('dirDialogPath').focus(); }
+    async function restartForwarder() {
+      if (!confirm(t('confirm_restart_forwarder'))) { return; }
+      selectedJob = null;
+      try {
+        const data = await api('/api/forwarder/restart', {method:'POST', body:'{}'});
+        const output = [data.stdout || '', data.stderr || ''].filter(Boolean).join('\n').trim();
+        document.getElementById('logPanel').textContent = output || 'forwarder restart requested';
+        await refreshForwarder();
+      } catch (err) { alert(err.message); }
+    }
+    async function openDirectory(path) {
+      const msg = document.getElementById('dirMessage'); msg.className = 'message'; msg.textContent = '';
+      try { const data = await api(`/api/fs/dirs?path=${encodeURIComponent(path || '')}`); renderDirectory(data); }
+      catch (err) { msg.className = 'message error'; msg.textContent = err.message; }
+    }
+    function renderDirectory(data) {
+      currentDir = data.path || '';
+      currentDirParent = data.parent || '';
+      document.getElementById('dirDialogPath').value = currentDir;
+      document.getElementById('dirParentBtn').disabled = !currentDirParent;
+      const list = document.getElementById('dirList');
+      list.innerHTML = '';
+      if (!data.entries.length) {
+        const empty = document.createElement('div');
+        empty.className = 'dir-row muted';
+        empty.textContent = t('no_subdirs');
+        list.appendChild(empty);
+        return;
+      }
+      data.entries.forEach(entry => {
+        const row = document.createElement('button');
+        row.className = 'dir-row';
+        row.type = 'button';
+        const name = document.createElement('span');
+        name.className = 'dir-name';
+        name.textContent = entry.name;
+        const flag = document.createElement('span');
+        flag.className = 'dir-writable';
+        flag.textContent = entry.writable ? t('writable') : t('readonly');
+        row.append(name, flag);
+        row.addEventListener('click', () => openDirectory(entry.path));
+        list.appendChild(row);
+      });
+    }
+    async function openDirectoryDialog() {
+      document.getElementById('dirDialog').classList.remove('hidden');
+      await openDirectory(document.getElementById('downloadDir').value);
+      document.getElementById('dirDialogPath').focus();
+    }
     function closeDirectoryDialog() { document.getElementById('dirDialog').classList.add('hidden'); }
     function selectCurrentDirectory() { if (currentDir) { document.getElementById('downloadDir').value = currentDir; } closeDirectoryDialog(); }
-    function renderSummary(jobs) { const counts = jobs.reduce((acc, job) => { acc[job.status] = (acc[job.status] || 0) + 1; return acc; }, {}); const active = jobs.find(job => ['exporting','downloading','renaming','paused'].includes(job.status)); const items = [['活动', active ? `#${active.id}` : '0'], ['排队', counts.queued || 0], ['完成', (counts.done || 0) + (counts.skipped || 0)], ['失败', counts.failed || 0], ['暂停', counts.paused || 0]]; document.getElementById('summary').innerHTML = items.map(([label, value]) => `<div class="metric"><strong>${escapeHtml(value)}</strong><span>${label}</span></div>`).join(''); }
-    function renderForwarder(status) {
-      const sourceText = status.source_count ? `${status.source_count} 个已启用` : (status.source || '');
-      const items = [['状态', `<span class="status ${escapeHtml(status.state || 'unknown')}">${statusLabel(status.state || 'unknown')}</span>`], ['来源', escapeHtml(sourceText)], ['最近来源', escapeHtml(status.last_source || '')], ['已转发', escapeHtml(status.sent_count || 0)], ['错误', escapeHtml(status.last_error || '')]];
-      const configurationAction = status.configuration_hint ? `<button class="secondary" type="button" onclick="showPage('telegram')">配置 Telegram API</button><span class="muted">${escapeHtml(status.configuration_hint)}</span>` : '';
-      const restartHint = status.restart_hint || '重启命令未配置';
-      const restartButton = status.restart_configured ? '<button class="secondary" onclick="restartForwarder()">重启</button>' : `<button class="secondary" type="button" disabled title="${escapeHtml(restartHint)}">重启</button><span class="muted">${escapeHtml(restartHint)}</span>`;
-      document.getElementById('forwarderStatus').innerHTML = items.map(([label, value], index) => index === 0 ? `<div class="metric forwarder"><strong>${value}</strong><span>${label}</span></div>` : `<div class="metric"><strong>${value}</strong><span>${label}</span></div>`).join('') + configurationAction + '<button class="secondary" onclick="loadForwarderLog()">日志</button>' + restartButton;
+    function renderSummary(jobs) {
+      const counts = jobs.reduce((acc, job) => { acc[job.status] = (acc[job.status] || 0) + 1; return acc; }, {});
+      const active = jobs.find(job => ['exporting','downloading','renaming','paused'].includes(job.status));
+      const items = [[t('metric_active'), active ? `#${active.id}` : '0'], [t('metric_queued'), counts.queued || 0], [t('metric_done'), (counts.done || 0) + (counts.skipped || 0)], [t('metric_failed'), counts.failed || 0], [t('metric_paused'), counts.paused || 0]];
+      document.getElementById('summary').innerHTML = items.map(([label, value]) => `<div class="metric"><strong>${escapeHtml(value)}</strong><span>${label}</span></div>`).join('');
     }
-    function renderJobs(jobs) { const body = document.getElementById('jobsBody'); if (!jobs.length) { body.innerHTML = '<tr><td colspan="11"><div class="empty-state"><strong>还没有下载任务</strong><p class="muted">选择来源并输入消息 ID，任务会进入队列。完成后文件会按媒体信息写入归档目录。</p></div></td></tr>'; return; } body.innerHTML = jobs.map(job => { const pct = Math.max(0, Math.min(100, Number(job.progress || 0))); const active = ['queued','exporting','downloading','renaming'].includes(job.status); const resume = ['paused','failed','canceled'].includes(job.status) ? `<button class="secondary" onclick="resumeJob(${job.id})">继续</button>` : ''; const pause = active ? `<button class="secondary" onclick="pauseJob(${job.id})">暂停</button>` : ''; const remove = !['exporting','downloading','renaming','paused'].includes(job.status) ? `<button class="danger" onclick="deleteJob(${job.id})">删除</button>` : ''; return `<tr><td class="mono">#${job.id}</td><td>${escapeHtml(job.source_label || job.source_chat || '')}</td><td class="mono">${job.message_id}</td><td><span class="status ${job.status}">${statusLabel(job.status)}</span></td><td class="title-cell">${escapeHtml(job.title || job.error || '')}</td><td><div class="bar"><i style="width:${pct}%"></i></div><span class="muted">${pct.toFixed(1)}%</span></td><td>${escapeHtml(job.speed || '')}</td><td class="mono">${job.process_pid || ''}</td><td class="path-cell">${escapeHtml(job.download_dir || '')}</td><td class="title-cell">${escapeHtml(job.final_path || job.source_file || '')}</td><td class="actions"><button class="secondary" onclick="loadLog(${job.id})">日志</button>${pause}${resume}${remove}</td></tr>`; }).join(''); }
-    async function refreshJobs() { const data = await api('/api/jobs'); renderSummary(data.jobs); renderJobs(data.jobs); if (selectedJob) { document.getElementById('logPanel').textContent = await api(`/api/jobs/${selectedJob}/log`) || ''; } }
+    function renderForwarder(status) {
+      lastForwarderStatus = status;
+      const sourceText = status.source_count ? `${status.source_count} ${t('sources_enabled')}` : (status.source || '');
+      const items = [[t('fwd_status'), `<span class="status ${escapeHtml(status.state || 'unknown')}">${statusLabel(status.state || 'unknown')}</span>`], [t('fwd_source'), escapeHtml(sourceText)], [t('fwd_last_source'), escapeHtml(status.last_source || '')], [t('fwd_sent'), escapeHtml(status.sent_count || 0)], [t('fwd_error'), escapeHtml(status.last_error || '')]];
+      const configurationAction = status.configuration_hint ? `<button class="secondary" type="button" onclick="showPage('telegram')">${t('configure_telegram')}</button><span class="muted">${escapeHtml(status.configuration_hint)}</span>` : '';
+      const restartHint = status.restart_hint || t('restart_not_configured');
+      const restartButton = status.restart_configured ? `<button class="secondary" onclick="restartForwarder()">${t('restart')}</button>` : `<button class="secondary" type="button" disabled title="${escapeHtml(restartHint)}">${t('restart')}</button><span class="muted">${escapeHtml(restartHint)}</span>`;
+      document.getElementById('forwarderStatus').innerHTML = items.map(([label, value], index) => index === 0 ? `<div class="metric forwarder"><strong>${value}</strong><span>${label}</span></div>` : `<div class="metric"><strong>${value}</strong><span>${label}</span></div>`).join('') + configurationAction + `<button class="secondary" onclick="loadForwarderLog()">${t('log')}</button>` + restartButton;
+    }
+    function renderJobs(jobs) {
+      lastJobs = jobs || [];
+      const body = document.getElementById('jobsBody');
+      if (!lastJobs.length) {
+        body.innerHTML = `<tr><td colspan="11"><div class="empty-state"><strong>${t('empty_jobs_title')}</strong><p class="muted">${t('empty_jobs_desc')}</p></div></td></tr>`;
+        return;
+      }
+      body.innerHTML = lastJobs.map(job => {
+        const pct = Math.max(0, Math.min(100, Number(job.progress || 0)));
+        const active = ['queued','exporting','downloading','renaming'].includes(job.status);
+        const resume = ['paused','failed','canceled'].includes(job.status) ? `<button class="secondary" onclick="resumeJob(${job.id})">${t('resume')}</button>` : '';
+        const pause = active ? `<button class="secondary" onclick="pauseJob(${job.id})">${t('pause')}</button>` : '';
+        const remove = !['exporting','downloading','renaming','paused'].includes(job.status) ? `<button class="danger" onclick="deleteJob(${job.id})">${t('delete')}</button>` : '';
+        return `<tr><td class="mono">#${job.id}</td><td>${escapeHtml(job.source_label || job.source_chat || '')}</td><td class="mono">${job.message_id}</td><td><span class="status ${job.status}">${statusLabel(job.status)}</span></td><td class="title-cell">${escapeHtml(job.title || job.error || '')}</td><td><div class="bar"><i style="width:${pct}%"></i></div><span class="muted">${pct.toFixed(1)}%</span></td><td>${escapeHtml(job.speed || '')}</td><td class="mono">${job.process_pid || ''}</td><td class="path-cell">${escapeHtml(job.download_dir || '')}</td><td class="title-cell">${escapeHtml(job.final_path || job.source_file || '')}</td><td class="actions"><button class="secondary" onclick="loadLog(${job.id})">${t('log')}</button>${pause}${resume}${remove}</td></tr>`;
+      }).join('');
+    }
+    async function refreshJobs() {
+      const data = await api('/api/jobs');
+      renderSummary(data.jobs);
+      renderJobs(data.jobs);
+      if (selectedJob) { document.getElementById('logPanel').textContent = await api(`/api/jobs/${selectedJob}/log`) || ''; }
+    }
     async function refreshForwarder() { renderForwarder(await api('/api/forwarder/status')); }
     async function refreshAll() { await Promise.all([refreshJobs(), refreshForwarder()]); }
+    function onI18nApplied() {
+      const active = document.querySelector('.nav-item.active');
+      showPage(active ? active.dataset.page : (location.hash || '#downloads').slice(1));
+      renderSources();
+      renderSourceOptions();
+      if (lastJobs) { renderSummary(lastJobs); renderJobs(lastJobs); }
+      if (lastForwarderStatus) { renderForwarder(lastForwarderStatus); }
+      // Re-apply server-derived Telegram labels without clearing an in-progress hash input.
+      if (lastTelegramConfig) { applyTelegramConfig(lastTelegramConfig, { resetHash: false }); }
+    }
     document.querySelectorAll('.nav-item').forEach(btn => btn.addEventListener('click', () => showPage(btn.dataset.page)));
     document.getElementById('submitBtn').addEventListener('click', submitJobs);
     document.getElementById('addSourceBtn').addEventListener('click', () => addSourceRow({}, false));
@@ -2165,6 +2804,8 @@ INDEX_HTML = r"""<!doctype html>
     document.getElementById('dirDialog').addEventListener('click', event => { if (event.target.id === 'dirDialog') { closeDirectoryDialog(); } });
     document.addEventListener('keydown', event => { if (event.key === 'Escape') { closeDirectoryDialog(); } });
     setInterval(() => { document.getElementById('clock').textContent = new Date().toLocaleString(); }, 1000);
+    bindLangSwitch();
+    applyI18n(resolveLang());
     showPage((location.hash || '#downloads').slice(1));
     loadMe(); loadConfig(); loadTelegramConfig(); loadSources(); refreshAll(); setInterval(refreshAll, 2500);
   </script>
@@ -2178,7 +2819,7 @@ SETUP_HTML = r"""<!doctype html>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>初始化下载中控</title>
+  <title data-i18n-title="doc_title_setup">初始化下载中控</title>
   <style>
     :root { --bg:#ece8df; --panel:#fffdf8; --line:#d9d2c5; --line-strong:#c7beae; --text:#202927; --muted:#68736f; --accent:#2b6f66; --accent-dark:#1f554f; --bad:#a64235; font-family:system-ui,"Segoe UI","PingFang SC","Microsoft YaHei","Noto Sans SC",Arial,sans-serif; }
     * { box-sizing:border-box; }
@@ -2200,32 +2841,415 @@ SETUP_HTML = r"""<!doctype html>
     button:active { transform:translateY(1px); }
     .message { min-height:20px; margin-top:12px; font-size:13px; color:var(--muted); }
     .message.error { color:var(--bad); }
+
+    .lang-switch { position:fixed; top:16px; right:16px; display:inline-flex; gap:4px; z-index:5; }
+    .lang-btn { min-height:32px; padding:0 12px; font-size:12px; font-weight:700; border-radius:999px; background:rgba(255,253,248,.94); color:#202927; border:1px solid #c7beae; cursor:pointer; }
+    .lang-btn.active { background:#2b6f66; color:#fff; border-color:#2b6f66; }
     @media (max-width:760px) { .auth-shell, .setup-grid { grid-template-columns:1fr; } .full { grid-column:auto; } }
   </style>
 </head>
 <body>
+<div class="lang-switch" role="group" aria-label="Language"><button type="button" class="lang-btn" data-lang="zh">中文</button><button type="button" class="lang-btn" data-lang="en">EN</button></div>
 <div class="auth-shell">
   <aside class="auth-intro">
     <span class="mark">TG</span>
-    <h1>初始化下载中控</h1>
-    <p>首次启动时创建管理员账号并设置下载目录。Telegram 转发器字段可以稍后在授权页补充。</p>
+    <h1 data-i18n="setup_h1">初始化下载中控</h1>
+    <p data-i18n="setup_intro">首次启动时创建管理员账号并设置下载目录。Telegram 转发器字段可以稍后在授权页补充。</p>
   </aside>
   <main>
-    <h2>完成初始设置</h2>
+    <h2 data-i18n="setup_h2">完成初始设置</h2>
     <div class="setup-grid">
-      <div><label for="username">管理员账号</label><input id="username" autocomplete="username" value="admin"></div>
-      <div><label for="password">管理员密码</label><input id="password" type="password" autocomplete="new-password"></div>
-      <div class="full"><label for="downloadDir">下载目录</label><input id="downloadDir" placeholder="/downloads"></div>
-      <div><label for="apiId">Telegram API ID（仅转发器需要）</label><input id="apiId" inputmode="numeric"></div>
-      <div><label for="apiHash">Telegram API hash（仅转发器需要）</label><input id="apiHash"></div>
-      <div><label for="sessionFile">Telegram Session 文件（仅转发器需要）</label><input id="sessionFile" placeholder="/config/session.txt"></div>
-      <div><label for="channelId">转发目标频道 ID（仅转发器需要）</label><input id="channelId" placeholder="-100..."></div>
+      <div><label for="username" data-i18n="setup_username">管理员账号</label><input id="username" autocomplete="username" value="admin"></div>
+      <div><label for="password" data-i18n="setup_password">管理员密码</label><input id="password" type="password" autocomplete="new-password"></div>
+      <div class="full"><label for="downloadDir" data-i18n="setup_download_dir">下载目录</label><input id="downloadDir" placeholder="/downloads"></div>
+      <div><label for="apiId" data-i18n="setup_api_id">Telegram API ID（仅转发器需要）</label><input id="apiId" inputmode="numeric"></div>
+      <div><label for="apiHash" data-i18n="setup_api_hash">Telegram API hash（仅转发器需要）</label><input id="apiHash"></div>
+      <div><label for="sessionFile" data-i18n="setup_session">Telegram Session 文件（仅转发器需要）</label><input id="sessionFile" placeholder="/config/session.txt"></div>
+      <div><label for="channelId" data-i18n="setup_channel">转发目标频道 ID（仅转发器需要）</label><input id="channelId" placeholder="-100..."></div>
     </div>
-    <button id="saveBtn" type="button">完成初始化</button>
-    <div class="message" id="message">Telegram 授权和 tdl 登录可以初始化后再配置。</div>
+    <button id="saveBtn" type="button" data-i18n="setup_btn">完成初始化</button>
+    <div class="message" id="message" data-i18n="setup_hint">Telegram 授权和 tdl 登录可以初始化后再配置。</div>
   </main>
 </div>
 <script>
+
+    const I18N = {
+      zh: {
+        doc_title_index: 'Telegram 下载管理',
+        doc_title_setup: '初始化下载中控',
+        doc_title_login: '登录 - Telegram 下载管理',
+        brand_name: 'TG 下载中控',
+        brand_sub: '媒体归档服务',
+        nav_main: '主菜单',
+        nav_downloads: '下载任务',
+        nav_paths: '路径设置',
+        nav_sources: '资源来源',
+        nav_telegram: 'Telegram 授权',
+        nav_password: '密码管理',
+        logout: '退出登录',
+        eyebrow: '媒体归档工作台',
+        lang_zh: '中文',
+        lang_en: 'EN',
+        lang_label: '语言',
+        submit_title: '提交下载',
+        source_label: '资源来源',
+        message_ids: '消息 ID',
+        submit_btn: '提交下载',
+        activity_pill: '当前活动',
+        queue_aside_title: '媒体下载队列',
+        queue_aside_desc: '任务会按媒体信息写入 Movies、TV 或普通文件目录。暂停后的任务可继续下载。',
+        forwarder_title: '转发监控',
+        forwarder_desc: '监听来源、转发统计和 forwarder 状态。',
+        jobs_title: '下载队列',
+        jobs_desc: '保留表格密度，突出媒体标题、进度和可恢复操作。',
+        col_job: '任务',
+        col_source: '来源',
+        col_message: '消息',
+        col_status: '状态',
+        col_title_error: '片名/错误',
+        col_progress: '进度',
+        col_speed: '速度',
+        col_pid: 'PID',
+        col_dir: '目录',
+        col_file: '文件',
+        col_actions: '操作',
+        log_title: '任务输出',
+        log_desc: '查看选中任务或 forwarder 的运行日志。',
+        paths_title: '下载目录',
+        current_path: '当前路径',
+        browse_dir: '选择目录',
+        save: '保存',
+        sources_title: '资源来源',
+        add_source: '添加来源',
+        telethon_title: 'Telethon 用户授权',
+        telethon_note: '用于转发监听和消息处理；这里生成的 Session 不会自动登录 tdl。',
+        telegram_api: 'Telegram API',
+        api_hash_keep: '留空保持不变',
+        session_file: 'Session 文件',
+        channel_id: '转发目标频道 ID',
+        telegram_proxy: 'Telegram 代理',
+        save_config: '保存配置',
+        code_login: '验证码登录',
+        phone: '手机号',
+        code: '验证码',
+        twofa: '两步验证密码',
+        send_code: '发送验证码',
+        confirm_login: '确认登录',
+        qr_login: '二维码登录',
+        gen_qr: '生成二维码',
+        check_qr: '检查扫码状态',
+        tdl_title: 'tdl 下载授权',
+        tdl_note: '用于实际 Telegram 文件下载；tdl 需要单独登录，不会读取上方 Telethon Session。',
+        start_tdl_code: '启动验证码登录',
+        send_phone: '发送手机号',
+        send_code_btn: '发送验证码',
+        send_twofa: '发送两步验证密码',
+        refresh_status: '刷新状态',
+        tdl_output: 'tdl 输出',
+        password_title: '密码管理',
+        current_password: '当前密码',
+        new_password: '新密码',
+        change_password: '修改密码',
+        dir_dialog_title: '选择目录',
+        close: '关闭',
+        parent_dir: '上级',
+        root_dir: '根目录',
+        dir_path: '目录路径',
+        open: '打开',
+        use_current_dir: '使用当前目录',
+        status_queued: '排队中',
+        status_exporting: '导出中',
+        status_downloading: '下载中',
+        status_renaming: '重命名',
+        status_paused: '已暂停',
+        status_done: '已完成',
+        status_skipped: '已存在',
+        status_failed: '失败',
+        status_canceled: '已取消',
+        status_running: '运行中',
+        status_stale: '已失联',
+        status_missing: '未启动',
+        status_unknown: '未知',
+        need_login: '需要登录',
+        api_hash_saved: '已保存，留空保持不变',
+        api_hash_required: '必填',
+        session_exists: 'Session 文件已存在',
+        session_missing: 'Session 文件未生成',
+        source_name: '名称',
+        source_chat: 'tdl 会话',
+        source_forward: '转发来源',
+        enabled: '启用',
+        default: '默认',
+        remove: '移除',
+        saved: '已保存',
+        code_sent: '验证码已发送',
+        auth_done: '授权完成',
+        qr_alt: 'Telegram 登录二维码',
+        qr_need_password: '请输入两步验证密码后再次检查',
+        tdl_running_code: '按终端输出提示发送手机号、验证码或两步验证密码',
+        tdl_running_qr: '请使用 Telegram 扫描上方二维码',
+        tdl_login_done: 'tdl 登录完成',
+        confirm_tdl_qr: '开始 tdl 扫码登录？已有 tdl 登录数据可能被覆盖。',
+        confirm_tdl_code: '开始 tdl 验证码登录？已有 tdl 登录数据可能被覆盖。',
+        jobs_queued: '任务已加入队列',
+        confirm_restart_forwarder: '确认重启 forwarder？',
+        no_subdirs: '没有子目录',
+        writable: '可写',
+        readonly: '只读',
+        metric_active: '活动',
+        metric_queued: '排队',
+        metric_done: '完成',
+        metric_failed: '失败',
+        metric_paused: '暂停',
+        fwd_status: '状态',
+        fwd_source: '来源',
+        fwd_last_source: '最近来源',
+        fwd_sent: '已转发',
+        fwd_error: '错误',
+        sources_enabled: '个已启用',
+        configure_telegram: '配置 Telegram API',
+        restart_not_configured: '重启命令未配置',
+        restart: '重启',
+        log: '日志',
+        empty_jobs_title: '还没有下载任务',
+        empty_jobs_desc: '选择来源并输入消息 ID，任务会进入队列。完成后文件会按媒体信息写入归档目录。',
+        pause: '暂停',
+        resume: '继续',
+        delete: '删除',
+        setup_h1: '初始化下载中控',
+        setup_intro: '首次启动时创建管理员账号并设置下载目录。Telegram 转发器字段可以稍后在授权页补充。',
+        setup_h2: '完成初始设置',
+        setup_username: '管理员账号',
+        setup_password: '管理员密码',
+        setup_download_dir: '下载目录',
+        setup_api_id: 'Telegram API ID（仅转发器需要）',
+        setup_api_hash: 'Telegram API hash（仅转发器需要）',
+        setup_session: 'Telegram Session 文件（仅转发器需要）',
+        setup_channel: '转发目标频道 ID（仅转发器需要）',
+        setup_btn: '完成初始化',
+        setup_hint: 'Telegram 授权和 tdl 登录可以初始化后再配置。',
+        login_intro: '媒体归档服务。登录后管理下载队列、资源来源、归档目录和 Telegram 授权。',
+        login_h1: 'Telegram 下载管理',
+        login_h2: '登录下载中控',
+        login_admin: '管理员',
+        login_password: '密码',
+        login_btn: '登录',
+        login_failed: '登录失败'
+      },
+      en: {
+        doc_title_index: 'Telegram Download Manager',
+        doc_title_setup: 'Initialize Download Console',
+        doc_title_login: 'Login - Telegram Download Manager',
+        brand_name: 'TG Download Console',
+        brand_sub: 'Media archive service',
+        nav_main: 'Main menu',
+        nav_downloads: 'Downloads',
+        nav_paths: 'Paths',
+        nav_sources: 'Sources',
+        nav_telegram: 'Telegram Auth',
+        nav_password: 'Password',
+        logout: 'Log out',
+        eyebrow: 'Media archive workbench',
+        lang_zh: '中文',
+        lang_en: 'EN',
+        lang_label: 'Language',
+        submit_title: 'Submit download',
+        source_label: 'Source',
+        message_ids: 'Message IDs',
+        submit_btn: 'Submit download',
+        activity_pill: 'Active now',
+        queue_aside_title: 'Media download queue',
+        queue_aside_desc: 'Jobs write into Movies, TV, or general file folders from media metadata. Paused jobs can be resumed.',
+        forwarder_title: 'Forwarder monitor',
+        forwarder_desc: 'Watched sources, forward stats, and forwarder state.',
+        jobs_title: 'Download queue',
+        jobs_desc: 'Dense table focused on titles, progress, and recoverable actions.',
+        col_job: 'Job',
+        col_source: 'Source',
+        col_message: 'Message',
+        col_status: 'Status',
+        col_title_error: 'Title / error',
+        col_progress: 'Progress',
+        col_speed: 'Speed',
+        col_pid: 'PID',
+        col_dir: 'Directory',
+        col_file: 'File',
+        col_actions: 'Actions',
+        log_title: 'Job output',
+        log_desc: 'Logs for the selected job or the forwarder.',
+        paths_title: 'Download directory',
+        current_path: 'Current path',
+        browse_dir: 'Browse',
+        save: 'Save',
+        sources_title: 'Sources',
+        add_source: 'Add source',
+        telethon_title: 'Telethon user auth',
+        telethon_note: 'Used for forward listening and message handling. This Session does not log tdl in automatically.',
+        telegram_api: 'Telegram API',
+        api_hash_keep: 'Leave blank to keep',
+        session_file: 'Session file',
+        channel_id: 'Forward target channel ID',
+        telegram_proxy: 'Telegram proxy',
+        save_config: 'Save config',
+        code_login: 'Code login',
+        phone: 'Phone',
+        code: 'Code',
+        twofa: '2FA password',
+        send_code: 'Send code',
+        confirm_login: 'Confirm login',
+        qr_login: 'QR login',
+        gen_qr: 'Generate QR',
+        check_qr: 'Check scan status',
+        tdl_title: 'tdl download auth',
+        tdl_note: 'Used for actual Telegram file downloads. tdl needs its own login and does not read the Telethon Session above.',
+        start_tdl_code: 'Start code login',
+        send_phone: 'Send phone',
+        send_code_btn: 'Send code',
+        send_twofa: 'Send 2FA password',
+        refresh_status: 'Refresh status',
+        tdl_output: 'tdl output',
+        password_title: 'Password',
+        current_password: 'Current password',
+        new_password: 'New password',
+        change_password: 'Change password',
+        dir_dialog_title: 'Select directory',
+        close: 'Close',
+        parent_dir: 'Up',
+        root_dir: 'Root',
+        dir_path: 'Directory path',
+        open: 'Open',
+        use_current_dir: 'Use current directory',
+        status_queued: 'Queued',
+        status_exporting: 'Exporting',
+        status_downloading: 'Downloading',
+        status_renaming: 'Renaming',
+        status_paused: 'Paused',
+        status_done: 'Done',
+        status_skipped: 'Exists',
+        status_failed: 'Failed',
+        status_canceled: 'Canceled',
+        status_running: 'Running',
+        status_stale: 'Stale',
+        status_missing: 'Not started',
+        status_unknown: 'Unknown',
+        need_login: 'Login required',
+        api_hash_saved: 'Saved; leave blank to keep',
+        api_hash_required: 'Required',
+        session_exists: 'Session file exists',
+        session_missing: 'Session file not created',
+        source_name: 'Name',
+        source_chat: 'tdl chat',
+        source_forward: 'Forward source',
+        enabled: 'Enabled',
+        default: 'Default',
+        remove: 'Remove',
+        saved: 'Saved',
+        code_sent: 'Code sent',
+        auth_done: 'Authorized',
+        qr_alt: 'Telegram login QR code',
+        qr_need_password: 'Enter 2FA password and check again',
+        tdl_running_code: 'Follow terminal prompts to send phone, code, or 2FA password',
+        tdl_running_qr: 'Scan the QR code above with Telegram',
+        tdl_login_done: 'tdl login complete',
+        confirm_tdl_qr: 'Start tdl QR login? Existing tdl login data may be overwritten.',
+        confirm_tdl_code: 'Start tdl code login? Existing tdl login data may be overwritten.',
+        jobs_queued: 'Jobs queued',
+        confirm_restart_forwarder: 'Restart forwarder?',
+        no_subdirs: 'No subdirectories',
+        writable: 'Writable',
+        readonly: 'Read-only',
+        metric_active: 'Active',
+        metric_queued: 'Queued',
+        metric_done: 'Done',
+        metric_failed: 'Failed',
+        metric_paused: 'Paused',
+        fwd_status: 'Status',
+        fwd_source: 'Source',
+        fwd_last_source: 'Last source',
+        fwd_sent: 'Forwarded',
+        fwd_error: 'Error',
+        sources_enabled: 'enabled',
+        configure_telegram: 'Configure Telegram API',
+        restart_not_configured: 'Restart command not configured',
+        restart: 'Restart',
+        log: 'Log',
+        empty_jobs_title: 'No download jobs yet',
+        empty_jobs_desc: 'Pick a source and enter message IDs to queue jobs. Finished files are archived from media metadata.',
+        pause: 'Pause',
+        resume: 'Resume',
+        delete: 'Delete',
+        setup_h1: 'Initialize download console',
+        setup_intro: 'Create the admin account and download directory on first start. Telegram forwarder fields can be filled later on the auth page.',
+        setup_h2: 'Finish initial setup',
+        setup_username: 'Admin username',
+        setup_password: 'Admin password',
+        setup_download_dir: 'Download directory',
+        setup_api_id: 'Telegram API ID (forwarder only)',
+        setup_api_hash: 'Telegram API hash (forwarder only)',
+        setup_session: 'Telegram session file (forwarder only)',
+        setup_channel: 'Forward target channel ID (forwarder only)',
+        setup_btn: 'Finish setup',
+        setup_hint: 'Telegram authorization and tdl login can be configured after setup.',
+        login_intro: 'Media archive service. After login, manage the download queue, sources, archive paths, and Telegram auth.',
+        login_h1: 'Telegram Download Manager',
+        login_h2: 'Sign in to the console',
+        login_admin: 'Admin',
+        login_password: 'Password',
+        login_btn: 'Log in',
+        login_failed: 'Login failed'
+      }
+    };
+    let currentLang = 'zh';
+    function resolveLang() {
+      try {
+        const saved = localStorage.getItem('tgdl_lang');
+        if (saved === 'zh' || saved === 'en') return saved;
+      } catch (e) {}
+      const langs = (navigator.languages && navigator.languages.length) ? navigator.languages : [navigator.language || 'zh'];
+      for (const lang of langs) {
+        const low = String(lang || '').toLowerCase();
+        if (low.startsWith('zh')) return 'zh';
+        if (low.startsWith('en')) return 'en';
+      }
+      return 'zh';
+    }
+    function t(key) {
+      const pack = I18N[currentLang] || I18N.zh;
+      if (pack && pack[key] != null) return pack[key];
+      if (I18N.zh && I18N.zh[key] != null) return I18N.zh[key];
+      return key;
+    }
+    function applyI18n(lang) {
+      currentLang = (lang === 'en') ? 'en' : 'zh';
+      try { localStorage.setItem('tgdl_lang', currentLang); } catch (e) {}
+      document.documentElement.lang = currentLang === 'zh' ? 'zh-CN' : 'en';
+      document.querySelectorAll('[data-i18n]').forEach(el => {
+        const key = el.getAttribute('data-i18n');
+        if (key) el.textContent = t(key);
+      });
+      document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
+        const key = el.getAttribute('data-i18n-placeholder');
+        if (key) el.placeholder = t(key);
+      });
+      document.querySelectorAll('[data-i18n-aria]').forEach(el => {
+        const key = el.getAttribute('data-i18n-aria');
+        if (key) el.setAttribute('aria-label', t(key));
+      });
+      document.querySelectorAll('[data-i18n-title]').forEach(el => {
+        const key = el.getAttribute('data-i18n-title');
+        if (key) document.title = t(key);
+      });
+      document.querySelectorAll('.lang-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.getAttribute('data-lang') === currentLang);
+      });
+      if (typeof onI18nApplied === 'function') onI18nApplied();
+    }
+    function bindLangSwitch() {
+      document.querySelectorAll('.lang-btn').forEach(btn => {
+        btn.addEventListener('click', () => applyI18n(btn.getAttribute('data-lang')));
+      });
+    }
+
 document.getElementById('saveBtn').addEventListener('click', async () => {
   const message = document.getElementById('message');
   message.className = 'message';
@@ -2250,6 +3274,8 @@ fetch('/api/setup').then(res => res.json()).then(data => {
 }).catch(() => {
   document.getElementById('downloadDir').value = '/downloads';
 });
+bindLangSwitch();
+applyI18n(resolveLang());
 </script>
 </body>
 </html>
@@ -2260,7 +3286,7 @@ LOGIN_HTML = r"""<!doctype html>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>登录 - Telegram 下载管理</title>
+  <title data-i18n-title="doc_title_login">登录 - Telegram 下载管理</title>
   <style>
     :root { font-family:system-ui,"Segoe UI","PingFang SC","Microsoft YaHei","Noto Sans SC",Arial,sans-serif; color:#202927; background:#ece8df; --line:#d9d2c5; --line-strong:#c7beae; --muted:#68736f; --accent:#2b6f66; --accent-dark:#1f554f; --bad:#a64235; }
     * { box-sizing: border-box; }
@@ -2280,35 +3306,420 @@ LOGIN_HTML = r"""<!doctype html>
     button:hover { background:var(--accent-dark); }
     button:active { transform:translateY(1px); }
     .error { min-height:20px; margin-top:12px; color:var(--bad); font-size:13px; }
+
+    .lang-switch { position:fixed; top:16px; right:16px; display:inline-flex; gap:4px; z-index:5; }
+    .lang-btn { min-height:32px; padding:0 12px; font-size:12px; font-weight:700; border-radius:999px; background:rgba(255,253,248,.94); color:#202927; border:1px solid #c7beae; cursor:pointer; }
+    .lang-btn.active { background:#2b6f66; color:#fff; border-color:#2b6f66; }
     @media (max-width:760px) { .auth-shell { grid-template-columns:1fr; } }
   </style>
 </head>
 <body>
+  <div class="lang-switch" role="group" aria-label="Language"><button type="button" class="lang-btn" data-lang="zh">中文</button><button type="button" class="lang-btn" data-lang="en">EN</button></div>
   <div class="auth-shell">
     <aside class="auth-intro">
       <span class="mark">TG</span>
-      <h1>TG 下载中控</h1>
-      <p>媒体归档服务。登录后管理下载队列、资源来源、归档目录和 Telegram 授权。</p>
+      <h1 data-i18n="brand_name">TG 下载中控</h1>
+      <p data-i18n="login_intro">媒体归档服务。登录后管理下载队列、资源来源、归档目录和 Telegram 授权。</p>
     </aside>
     <form id="loginForm">
-      <h1>Telegram 下载管理</h1>
-      <h2>登录下载中控</h2>
-      <label for="username">管理员</label>
+      <h1 data-i18n="login_h1">Telegram 下载管理</h1>
+      <h2 data-i18n="login_h2">登录下载中控</h2>
+      <label for="username" data-i18n="login_admin">管理员</label>
       <input id="username" autocomplete="username" value="admin">
-      <label for="password">密码</label>
+      <label for="password" data-i18n="login_password">密码</label>
       <input id="password" type="password" autocomplete="current-password" autofocus>
-      <button type="submit">登录</button>
+      <button type="submit" data-i18n="login_btn">登录</button>
       <div class="error" id="error"></div>
     </form>
   </div>
   <script>
+
+    const I18N = {
+      zh: {
+        doc_title_index: 'Telegram 下载管理',
+        doc_title_setup: '初始化下载中控',
+        doc_title_login: '登录 - Telegram 下载管理',
+        brand_name: 'TG 下载中控',
+        brand_sub: '媒体归档服务',
+        nav_main: '主菜单',
+        nav_downloads: '下载任务',
+        nav_paths: '路径设置',
+        nav_sources: '资源来源',
+        nav_telegram: 'Telegram 授权',
+        nav_password: '密码管理',
+        logout: '退出登录',
+        eyebrow: '媒体归档工作台',
+        lang_zh: '中文',
+        lang_en: 'EN',
+        lang_label: '语言',
+        submit_title: '提交下载',
+        source_label: '资源来源',
+        message_ids: '消息 ID',
+        submit_btn: '提交下载',
+        activity_pill: '当前活动',
+        queue_aside_title: '媒体下载队列',
+        queue_aside_desc: '任务会按媒体信息写入 Movies、TV 或普通文件目录。暂停后的任务可继续下载。',
+        forwarder_title: '转发监控',
+        forwarder_desc: '监听来源、转发统计和 forwarder 状态。',
+        jobs_title: '下载队列',
+        jobs_desc: '保留表格密度，突出媒体标题、进度和可恢复操作。',
+        col_job: '任务',
+        col_source: '来源',
+        col_message: '消息',
+        col_status: '状态',
+        col_title_error: '片名/错误',
+        col_progress: '进度',
+        col_speed: '速度',
+        col_pid: 'PID',
+        col_dir: '目录',
+        col_file: '文件',
+        col_actions: '操作',
+        log_title: '任务输出',
+        log_desc: '查看选中任务或 forwarder 的运行日志。',
+        paths_title: '下载目录',
+        current_path: '当前路径',
+        browse_dir: '选择目录',
+        save: '保存',
+        sources_title: '资源来源',
+        add_source: '添加来源',
+        telethon_title: 'Telethon 用户授权',
+        telethon_note: '用于转发监听和消息处理；这里生成的 Session 不会自动登录 tdl。',
+        telegram_api: 'Telegram API',
+        api_hash_keep: '留空保持不变',
+        session_file: 'Session 文件',
+        channel_id: '转发目标频道 ID',
+        telegram_proxy: 'Telegram 代理',
+        save_config: '保存配置',
+        code_login: '验证码登录',
+        phone: '手机号',
+        code: '验证码',
+        twofa: '两步验证密码',
+        send_code: '发送验证码',
+        confirm_login: '确认登录',
+        qr_login: '二维码登录',
+        gen_qr: '生成二维码',
+        check_qr: '检查扫码状态',
+        tdl_title: 'tdl 下载授权',
+        tdl_note: '用于实际 Telegram 文件下载；tdl 需要单独登录，不会读取上方 Telethon Session。',
+        start_tdl_code: '启动验证码登录',
+        send_phone: '发送手机号',
+        send_code_btn: '发送验证码',
+        send_twofa: '发送两步验证密码',
+        refresh_status: '刷新状态',
+        tdl_output: 'tdl 输出',
+        password_title: '密码管理',
+        current_password: '当前密码',
+        new_password: '新密码',
+        change_password: '修改密码',
+        dir_dialog_title: '选择目录',
+        close: '关闭',
+        parent_dir: '上级',
+        root_dir: '根目录',
+        dir_path: '目录路径',
+        open: '打开',
+        use_current_dir: '使用当前目录',
+        status_queued: '排队中',
+        status_exporting: '导出中',
+        status_downloading: '下载中',
+        status_renaming: '重命名',
+        status_paused: '已暂停',
+        status_done: '已完成',
+        status_skipped: '已存在',
+        status_failed: '失败',
+        status_canceled: '已取消',
+        status_running: '运行中',
+        status_stale: '已失联',
+        status_missing: '未启动',
+        status_unknown: '未知',
+        need_login: '需要登录',
+        api_hash_saved: '已保存，留空保持不变',
+        api_hash_required: '必填',
+        session_exists: 'Session 文件已存在',
+        session_missing: 'Session 文件未生成',
+        source_name: '名称',
+        source_chat: 'tdl 会话',
+        source_forward: '转发来源',
+        enabled: '启用',
+        default: '默认',
+        remove: '移除',
+        saved: '已保存',
+        code_sent: '验证码已发送',
+        auth_done: '授权完成',
+        qr_alt: 'Telegram 登录二维码',
+        qr_need_password: '请输入两步验证密码后再次检查',
+        tdl_running_code: '按终端输出提示发送手机号、验证码或两步验证密码',
+        tdl_running_qr: '请使用 Telegram 扫描上方二维码',
+        tdl_login_done: 'tdl 登录完成',
+        confirm_tdl_qr: '开始 tdl 扫码登录？已有 tdl 登录数据可能被覆盖。',
+        confirm_tdl_code: '开始 tdl 验证码登录？已有 tdl 登录数据可能被覆盖。',
+        jobs_queued: '任务已加入队列',
+        confirm_restart_forwarder: '确认重启 forwarder？',
+        no_subdirs: '没有子目录',
+        writable: '可写',
+        readonly: '只读',
+        metric_active: '活动',
+        metric_queued: '排队',
+        metric_done: '完成',
+        metric_failed: '失败',
+        metric_paused: '暂停',
+        fwd_status: '状态',
+        fwd_source: '来源',
+        fwd_last_source: '最近来源',
+        fwd_sent: '已转发',
+        fwd_error: '错误',
+        sources_enabled: '个已启用',
+        configure_telegram: '配置 Telegram API',
+        restart_not_configured: '重启命令未配置',
+        restart: '重启',
+        log: '日志',
+        empty_jobs_title: '还没有下载任务',
+        empty_jobs_desc: '选择来源并输入消息 ID，任务会进入队列。完成后文件会按媒体信息写入归档目录。',
+        pause: '暂停',
+        resume: '继续',
+        delete: '删除',
+        setup_h1: '初始化下载中控',
+        setup_intro: '首次启动时创建管理员账号并设置下载目录。Telegram 转发器字段可以稍后在授权页补充。',
+        setup_h2: '完成初始设置',
+        setup_username: '管理员账号',
+        setup_password: '管理员密码',
+        setup_download_dir: '下载目录',
+        setup_api_id: 'Telegram API ID（仅转发器需要）',
+        setup_api_hash: 'Telegram API hash（仅转发器需要）',
+        setup_session: 'Telegram Session 文件（仅转发器需要）',
+        setup_channel: '转发目标频道 ID（仅转发器需要）',
+        setup_btn: '完成初始化',
+        setup_hint: 'Telegram 授权和 tdl 登录可以初始化后再配置。',
+        login_intro: '媒体归档服务。登录后管理下载队列、资源来源、归档目录和 Telegram 授权。',
+        login_h1: 'Telegram 下载管理',
+        login_h2: '登录下载中控',
+        login_admin: '管理员',
+        login_password: '密码',
+        login_btn: '登录',
+        login_failed: '登录失败'
+      },
+      en: {
+        doc_title_index: 'Telegram Download Manager',
+        doc_title_setup: 'Initialize Download Console',
+        doc_title_login: 'Login - Telegram Download Manager',
+        brand_name: 'TG Download Console',
+        brand_sub: 'Media archive service',
+        nav_main: 'Main menu',
+        nav_downloads: 'Downloads',
+        nav_paths: 'Paths',
+        nav_sources: 'Sources',
+        nav_telegram: 'Telegram Auth',
+        nav_password: 'Password',
+        logout: 'Log out',
+        eyebrow: 'Media archive workbench',
+        lang_zh: '中文',
+        lang_en: 'EN',
+        lang_label: 'Language',
+        submit_title: 'Submit download',
+        source_label: 'Source',
+        message_ids: 'Message IDs',
+        submit_btn: 'Submit download',
+        activity_pill: 'Active now',
+        queue_aside_title: 'Media download queue',
+        queue_aside_desc: 'Jobs write into Movies, TV, or general file folders from media metadata. Paused jobs can be resumed.',
+        forwarder_title: 'Forwarder monitor',
+        forwarder_desc: 'Watched sources, forward stats, and forwarder state.',
+        jobs_title: 'Download queue',
+        jobs_desc: 'Dense table focused on titles, progress, and recoverable actions.',
+        col_job: 'Job',
+        col_source: 'Source',
+        col_message: 'Message',
+        col_status: 'Status',
+        col_title_error: 'Title / error',
+        col_progress: 'Progress',
+        col_speed: 'Speed',
+        col_pid: 'PID',
+        col_dir: 'Directory',
+        col_file: 'File',
+        col_actions: 'Actions',
+        log_title: 'Job output',
+        log_desc: 'Logs for the selected job or the forwarder.',
+        paths_title: 'Download directory',
+        current_path: 'Current path',
+        browse_dir: 'Browse',
+        save: 'Save',
+        sources_title: 'Sources',
+        add_source: 'Add source',
+        telethon_title: 'Telethon user auth',
+        telethon_note: 'Used for forward listening and message handling. This Session does not log tdl in automatically.',
+        telegram_api: 'Telegram API',
+        api_hash_keep: 'Leave blank to keep',
+        session_file: 'Session file',
+        channel_id: 'Forward target channel ID',
+        telegram_proxy: 'Telegram proxy',
+        save_config: 'Save config',
+        code_login: 'Code login',
+        phone: 'Phone',
+        code: 'Code',
+        twofa: '2FA password',
+        send_code: 'Send code',
+        confirm_login: 'Confirm login',
+        qr_login: 'QR login',
+        gen_qr: 'Generate QR',
+        check_qr: 'Check scan status',
+        tdl_title: 'tdl download auth',
+        tdl_note: 'Used for actual Telegram file downloads. tdl needs its own login and does not read the Telethon Session above.',
+        start_tdl_code: 'Start code login',
+        send_phone: 'Send phone',
+        send_code_btn: 'Send code',
+        send_twofa: 'Send 2FA password',
+        refresh_status: 'Refresh status',
+        tdl_output: 'tdl output',
+        password_title: 'Password',
+        current_password: 'Current password',
+        new_password: 'New password',
+        change_password: 'Change password',
+        dir_dialog_title: 'Select directory',
+        close: 'Close',
+        parent_dir: 'Up',
+        root_dir: 'Root',
+        dir_path: 'Directory path',
+        open: 'Open',
+        use_current_dir: 'Use current directory',
+        status_queued: 'Queued',
+        status_exporting: 'Exporting',
+        status_downloading: 'Downloading',
+        status_renaming: 'Renaming',
+        status_paused: 'Paused',
+        status_done: 'Done',
+        status_skipped: 'Exists',
+        status_failed: 'Failed',
+        status_canceled: 'Canceled',
+        status_running: 'Running',
+        status_stale: 'Stale',
+        status_missing: 'Not started',
+        status_unknown: 'Unknown',
+        need_login: 'Login required',
+        api_hash_saved: 'Saved; leave blank to keep',
+        api_hash_required: 'Required',
+        session_exists: 'Session file exists',
+        session_missing: 'Session file not created',
+        source_name: 'Name',
+        source_chat: 'tdl chat',
+        source_forward: 'Forward source',
+        enabled: 'Enabled',
+        default: 'Default',
+        remove: 'Remove',
+        saved: 'Saved',
+        code_sent: 'Code sent',
+        auth_done: 'Authorized',
+        qr_alt: 'Telegram login QR code',
+        qr_need_password: 'Enter 2FA password and check again',
+        tdl_running_code: 'Follow terminal prompts to send phone, code, or 2FA password',
+        tdl_running_qr: 'Scan the QR code above with Telegram',
+        tdl_login_done: 'tdl login complete',
+        confirm_tdl_qr: 'Start tdl QR login? Existing tdl login data may be overwritten.',
+        confirm_tdl_code: 'Start tdl code login? Existing tdl login data may be overwritten.',
+        jobs_queued: 'Jobs queued',
+        confirm_restart_forwarder: 'Restart forwarder?',
+        no_subdirs: 'No subdirectories',
+        writable: 'Writable',
+        readonly: 'Read-only',
+        metric_active: 'Active',
+        metric_queued: 'Queued',
+        metric_done: 'Done',
+        metric_failed: 'Failed',
+        metric_paused: 'Paused',
+        fwd_status: 'Status',
+        fwd_source: 'Source',
+        fwd_last_source: 'Last source',
+        fwd_sent: 'Forwarded',
+        fwd_error: 'Error',
+        sources_enabled: 'enabled',
+        configure_telegram: 'Configure Telegram API',
+        restart_not_configured: 'Restart command not configured',
+        restart: 'Restart',
+        log: 'Log',
+        empty_jobs_title: 'No download jobs yet',
+        empty_jobs_desc: 'Pick a source and enter message IDs to queue jobs. Finished files are archived from media metadata.',
+        pause: 'Pause',
+        resume: 'Resume',
+        delete: 'Delete',
+        setup_h1: 'Initialize download console',
+        setup_intro: 'Create the admin account and download directory on first start. Telegram forwarder fields can be filled later on the auth page.',
+        setup_h2: 'Finish initial setup',
+        setup_username: 'Admin username',
+        setup_password: 'Admin password',
+        setup_download_dir: 'Download directory',
+        setup_api_id: 'Telegram API ID (forwarder only)',
+        setup_api_hash: 'Telegram API hash (forwarder only)',
+        setup_session: 'Telegram session file (forwarder only)',
+        setup_channel: 'Forward target channel ID (forwarder only)',
+        setup_btn: 'Finish setup',
+        setup_hint: 'Telegram authorization and tdl login can be configured after setup.',
+        login_intro: 'Media archive service. After login, manage the download queue, sources, archive paths, and Telegram auth.',
+        login_h1: 'Telegram Download Manager',
+        login_h2: 'Sign in to the console',
+        login_admin: 'Admin',
+        login_password: 'Password',
+        login_btn: 'Log in',
+        login_failed: 'Login failed'
+      }
+    };
+    let currentLang = 'zh';
+    function resolveLang() {
+      try {
+        const saved = localStorage.getItem('tgdl_lang');
+        if (saved === 'zh' || saved === 'en') return saved;
+      } catch (e) {}
+      const langs = (navigator.languages && navigator.languages.length) ? navigator.languages : [navigator.language || 'zh'];
+      for (const lang of langs) {
+        const low = String(lang || '').toLowerCase();
+        if (low.startsWith('zh')) return 'zh';
+        if (low.startsWith('en')) return 'en';
+      }
+      return 'zh';
+    }
+    function t(key) {
+      const pack = I18N[currentLang] || I18N.zh;
+      if (pack && pack[key] != null) return pack[key];
+      if (I18N.zh && I18N.zh[key] != null) return I18N.zh[key];
+      return key;
+    }
+    function applyI18n(lang) {
+      currentLang = (lang === 'en') ? 'en' : 'zh';
+      try { localStorage.setItem('tgdl_lang', currentLang); } catch (e) {}
+      document.documentElement.lang = currentLang === 'zh' ? 'zh-CN' : 'en';
+      document.querySelectorAll('[data-i18n]').forEach(el => {
+        const key = el.getAttribute('data-i18n');
+        if (key) el.textContent = t(key);
+      });
+      document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
+        const key = el.getAttribute('data-i18n-placeholder');
+        if (key) el.placeholder = t(key);
+      });
+      document.querySelectorAll('[data-i18n-aria]').forEach(el => {
+        const key = el.getAttribute('data-i18n-aria');
+        if (key) el.setAttribute('aria-label', t(key));
+      });
+      document.querySelectorAll('[data-i18n-title]').forEach(el => {
+        const key = el.getAttribute('data-i18n-title');
+        if (key) document.title = t(key);
+      });
+      document.querySelectorAll('.lang-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.getAttribute('data-lang') === currentLang);
+      });
+      if (typeof onI18nApplied === 'function') onI18nApplied();
+    }
+    function bindLangSwitch() {
+      document.querySelectorAll('.lang-btn').forEach(btn => {
+        btn.addEventListener('click', () => applyI18n(btn.getAttribute('data-lang')));
+      });
+    }
+
     document.getElementById('loginForm').addEventListener('submit', async event => {
       event.preventDefault();
       const error = document.getElementById('error');
       error.textContent = '';
       const res = await fetch('/api/auth/login', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ username:document.getElementById('username').value, password:document.getElementById('password').value }) });
-      if (res.ok) { location.href = '/'; } else { error.textContent = await res.text() || '登录失败'; }
+      if (res.ok) { location.href = '/'; } else { error.textContent = await res.text() || t('login_failed'); }
     });
+    bindLangSwitch();
+    applyI18n(resolveLang());
   </script>
 </body>
 </html>
