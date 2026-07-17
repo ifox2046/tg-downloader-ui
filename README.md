@@ -24,6 +24,94 @@ proxy or VPN when remote access is required.
 The forwarder is only needed if you want this service to listen for messages
 and forward summaries into your own channel.
 
+## Recommended workflow (bot → private channel → message ID download)
+
+This is the intended end-to-end path for most operators:
+
+```text
+source bot(s)
+    │  (Telethon forwarder listens)
+    ▼
+your private channel  ── shows file summary + 消息ID ──► copy ID
+    │
+    ▼
+Web UI: pick source + paste message ID(s)
+    │  (tdl downloads from the original chat)
+    ▼
+download directory (Docker: /downloads)
+```
+
+### 1. Deploy and first-run setup
+
+1. Start Docker / package install and open the Web UI.
+2. Create the admin account and set an absolute download directory
+   (`/downloads` in Docker).
+3. Bind-mount the host download folder to `/downloads` if you want files on a
+   NAS share (for example `/vol1/.../telegram_downloads:/downloads`).
+
+### 2. Configure download sources
+
+In **来源设置** (sources), add each bot or chat you download from:
+
+| Field | Meaning |
+| --- | --- |
+| Label | Display name in the UI |
+| Chat | `tdl` chat identity used for download (usually the bot username without `@`) |
+| Forward source | Telethon `from_users` filter (usually `@BotUsername`) |
+
+Enable only the sources you use. The same list drives both manual downloads and
+the forwarder.
+
+### 3. Log in `tdl` (required for downloads)
+
+`tdl` is the real downloader. Complete **tdl 下载登录** (QR or code) with the
+Telegram account that can see the source bots/chats. Without this login,
+message-ID downloads will fail even if the Web UI is up.
+
+### 4. Optional but recommended: private channel + forwarder
+
+Use this when you do not want to dig message IDs out of bot chats by hand.
+
+1. Create a **private channel** you control (receive-only inbox).
+2. Get `api_id` / `api_hash` from https://my.telegram.org.
+3. On **Telegram 授权**, save API credentials, proxy if needed, session path
+   (Docker default `/tdl/session.txt`), and the channel numeric ID.
+4. Authorize Telethon (SMS/code or QR). This session is **independent** of the
+   `tdl` login.
+5. Ensure `TGDL_FORWARDER_ENABLED=1` (Docker default). The forwarder listens to
+   enabled sources and posts video summaries into your channel.
+
+Forwarded text includes the original caption plus lines like:
+
+```text
+文件: example.mp4
+大小: 1.2 GiB
+消息ID: 26933
+```
+
+Copy the **消息ID** value into the Web UI download form (with the matching
+source selected). The service then runs `tdl` against the configured source
+chat and that message ID.
+
+### 5. Download
+
+1. Open the main page, select the source bot/chat.
+2. Paste one or more message IDs from the channel summary (or from Telegram
+   directly).
+3. Submit the job and watch history / progress.
+4. Finished files land under the configured download directory. In-progress
+   files may appear as `*.tmp` until `tdl` finishes renaming them.
+
+### What you need vs what is optional
+
+| Capability | Required pieces |
+| --- | --- |
+| Manual message-ID download only | Web UI admin + `tdl` login + source chat + download dir |
+| Bot watch → channel summary → copy ID download | Above + Telethon session + private channel ID + forwarder enabled |
+
+You do **not** need the forwarder if you already know the message IDs. You do
+**not** need Telegram API credentials for pure `tdl` downloads.
+
 ## Pause and Recovery Semantics
 
 Pause and Continue are live-process controls on Linux: the service sends
@@ -80,7 +168,7 @@ The published Docker image is multi-architecture (`linux/amd64` and
 `linux/arm64`) under one name on Docker Hub:
 
 ```text
-ifox2046/tg-downloader-ui:0.1.0
+ifox2046/tg-downloader-ui:0.1.2
 ifox2046/tg-downloader-ui:latest
 ```
 
@@ -90,7 +178,7 @@ binary for that architecture (`tdl_Linux_64bit.tar.gz` on amd64,
 `docker build` on an amd64 host still works without Buildx.
 
 ```sh
-docker pull ifox2046/tg-downloader-ui:0.1.0
+docker pull ifox2046/tg-downloader-ui:0.1.2
 ```
 
 The container starts the Web UI and optional forwarder by default; set

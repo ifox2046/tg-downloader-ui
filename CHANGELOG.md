@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Install `python-socks` and `PySocks` with the Python package/Docker image so Telethon SOCKS proxies work.
+- Document the recommended bot → private channel → message-ID download workflow in README (EN/ZH).
 
 ## 0.1.0 - 2026-07-13
 

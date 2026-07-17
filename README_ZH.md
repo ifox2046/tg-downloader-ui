@@ -15,6 +15,83 @@
 
 只有在希望本服务监听消息并将摘要转发到你自己的频道时，才需要启用转发器。
 
+## 推荐使用流程（Bot → 自建频道 → 消息 ID 下载）
+
+这是本项目最常见的端到端用法：
+
+```text
+来源 Bot
+    │  （转发器监听）
+    ▼
+你的私有频道  ── 展示文件摘要 + 消息ID ──► 复制 ID
+    │
+    ▼
+Web UI：选择来源 + 粘贴消息 ID
+    │  （tdl 从来源会话下载）
+    ▼
+下载目录（Docker 内一般为 /downloads）
+```
+
+### 1. 部署与首次初始化
+
+1. 启动 Docker / 安装包后打开 Web UI。
+2. 创建管理员账户，并设置**绝对路径**下载目录（Docker 通常填 `/downloads`）。
+3. 若希望文件落到 NAS 共享目录，请把宿主机目录 bind 到容器 `/downloads`  
+   （例如 `/vol1/.../telegram_downloads:/downloads`）。
+
+### 2. 配置下载来源
+
+在「来源设置」中为每个要下载的 Bot/会话添加条目：
+
+| 字段 | 含义 |
+| --- | --- |
+| 显示名称 | UI 里显示的标签 |
+| Chat | `tdl` 下载用的会话标识（通常是不带 `@` 的 bot 用户名） |
+| 转发来源 | Telethon 监听用的 `from_users`（通常是 `@BotUsername`） |
+
+只启用你会用到的来源。同一份来源列表同时服务于手动下载和转发器。
+
+### 3. 登录 `tdl`（下载必需）
+
+`tdl` 才是真正的下载器。请在「tdl 下载登录」中用**能访问来源 Bot 的 Telegram 账号**完成二维码或验证码登录。未完成此项时，即使 Web UI 正常，消息 ID 下载也会失败。
+
+### 4. 推荐：自建私有频道 + 转发器
+
+当你不想在 Bot 会话里手工翻消息 ID 时使用：
+
+1. 创建一个你自己控制的**私有频道**，作为接收摘要的收件箱。
+2. 在 https://my.telegram.org 申请 `api_id` / `api_hash`。
+3. 打开「Telegram 授权」页，填写 API 凭据、可选代理、会话文件路径（Docker 默认 `/tdl/session.txt`）和频道数字 ID。
+4. 用短信验证码或二维码完成 Telethon 授权。该会话与 `tdl` 登录**相互独立**。
+5. 保持 `TGDL_FORWARDER_ENABLED=1`（Docker 默认开启）。转发器会监听已启用来源，把含视频的消息摘要发到你的频道。
+
+转发摘要大致包含原始文案，以及类似：
+
+```text
+文件: example.mp4
+大小: 1.2 GiB
+消息ID: 26933
+```
+
+把其中的 **消息ID** 复制到 Web UI 下载表单，并选择对应来源；服务会用 `tdl` 按该来源会话 + 消息 ID 下载。
+
+### 5. 提交下载
+
+1. 在首页选择来源 Bot/会话。
+2. 粘贴一个或多个消息 ID（来自频道摘要，或直接从 Telegram 取得）。
+3. 提交任务，在历史记录中查看进度。
+4. 完成后文件出现在配置的下载目录；下载中可能先以 `*.tmp` 存在，完成后再变为最终文件名。
+
+### 必需项与可选项
+
+| 能力 | 需要准备 |
+| --- | --- |
+| 仅手动消息 ID 下载 | Web UI 管理员 + `tdl` 登录 + 来源 Chat + 下载目录 |
+| Bot 监听 → 频道摘要 → 复制 ID 下载 | 以上全部 + Telethon 会话 + 私有频道 ID + 启用转发器 |
+
+若你已经知道消息 ID，可以不启用转发器。  
+若只做 `tdl` 下载，不需要 Telegram API 凭据。
+
 ## 暂停与恢复语义
 
 暂停和继续是 Linux 上的在线进程控制：服务向同一个正在运行的 `tdl` 进程发送 `SIGSTOP` 和 `SIGCONT`，从而保留 PID、已打开的临时文件和当前字节偏移。取消任务或关闭服务时，会先继续已停止的子进程，再将其正常终止。
@@ -57,14 +134,14 @@ Docker 持久化路径：
 发布的 Docker 镜像为多架构（`linux/amd64` 与 `linux/arm64`），在 Docker Hub 上共用同一镜像名与标签：
 
 ```text
-ifox2046/tg-downloader-ui:0.1.0
+ifox2046/tg-downloader-ui:0.1.2
 ifox2046/tg-downloader-ui:latest
 ```
 
 各平台在构建时安装对应架构、经校验的上游未修改 `tdl 0.20.3` 二进制（amd64 为 `tdl_Linux_64bit.tar.gz`，arm64 为 `tdl_Linux_arm64.tar.gz`）。在 amd64 主机上本地 `docker compose build` / 普通 `docker build` 仍可直接使用，无需 Buildx。
 
 ```sh
-docker pull ifox2046/tg-downloader-ui:0.1.0
+docker pull ifox2046/tg-downloader-ui:0.1.2
 ```
 
 容器默认启动 Web UI 和可选转发器；设置 `TGDL_FORWARDER_ENABLED=0` 可关闭转发器。转发器重启按钮只会重启容器内的转发进程，不需要访问 Docker socket。
