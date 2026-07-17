@@ -111,6 +111,103 @@ class ProgressParsingTests(unittest.TestCase):
         self.assertEqual(progress["flood_wait_seconds"], 620)
 
 
+class DownloadModeParsingTests(unittest.TestCase):
+    def test_parse_urls_accepts_supported_telegram_forms(self):
+        urls = app.parse_urls(
+            "\n".join(
+                [
+                    "https://t.me/name/123",
+                    "https://t.me/c/1234567890/42",
+                    "https://telegram.me/channel/99",
+                ]
+            )
+        )
+        self.assertEqual(len(urls), 3)
+        self.assertTrue(all(item.startswith("https://") for item in urls))
+
+    def test_parse_urls_rejects_invalid_and_empty(self):
+        with self.assertRaisesRegex(ValueError, "invalid telegram url"):
+            app.parse_urls("https://example.com/x/1")
+        with self.assertRaisesRegex(ValueError, "no urls provided"):
+            app.parse_urls("   \n  ")
+
+    def test_parse_urls_enforces_max_limit(self):
+        raw = "\n".join(f"https://t.me/name/{index}" for index in range(1, app.MAX_URLS + 2))
+        with self.assertRaisesRegex(ValueError, "too many urls"):
+            app.parse_urls(raw)
+
+    def test_resolve_export_path_allows_whitelist_and_rejects_traversal(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "exports"
+            root.mkdir()
+            export = root / "batch.json"
+            export.write_text("{}", encoding="utf-8")
+
+            resolved = app.resolve_export_path("batch.json", root)
+            self.assertEqual(resolved, export.resolve())
+
+            outside = Path(tmp) / "outside.json"
+            outside.write_text("{}", encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "outside whitelist"):
+                app.resolve_export_path(str(outside), root)
+            with self.assertRaisesRegex(ValueError, "outside whitelist"):
+                app.resolve_export_path("../outside.json", root)
+
+    def test_create_job_url_and_export_modes_store_payload(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            config = app.ConfigStore(
+                root / "state",
+                default_download_dir=root / "downloads",
+                default_password="test-password",
+            )
+            config.init()
+            store = JobStore(root / "state", config)
+            store.init()
+
+            url_job = store.create_job(
+                0,
+                mode="url",
+                input_payload={"urls": ["https://t.me/name/1"]},
+                source_label="url",
+            )
+            self.assertEqual(url_job["mode"], "url")
+            self.assertEqual(url_job["message_id"], 0)
+            self.assertIn("https://t.me/name/1", url_job["input_payload"])
+
+            export = store.exports_dir / "one.json"
+            export.write_text("{}", encoding="utf-8")
+            export_job = store.create_job(
+                0,
+                mode="export",
+                input_payload={"export_paths": ["one.json"]},
+                source_label="export",
+            )
+            self.assertEqual(export_job["mode"], "export")
+            self.assertEqual(export_job["message_id"], 0)
+            self.assertIn("one.json", export_job["input_payload"])
+
+            message_job = store.create_job(23311)
+            self.assertEqual(message_job["mode"], "message_id")
+            self.assertEqual(message_job["message_id"], 23311)
+
+            # Restart/init must not backfill default source onto url/export jobs.
+            store.init()
+            url_after = store.get_job(int(url_job["id"]))
+            export_after = store.get_job(int(export_job["id"]))
+            self.assertEqual(url_after["mode"], "url")
+            self.assertEqual(url_after["source_chat"], "")
+            self.assertEqual(url_after["source_label"], "url")
+            self.assertEqual(export_after["mode"], "export")
+            self.assertEqual(export_after["source_chat"], "")
+            self.assertEqual(export_after["source_label"], "export")
+
+            claimed_url = store.claim_next()
+            self.assertIsNotNone(claimed_url)
+            self.assertEqual(claimed_url["mode"], "url")
+            self.assertEqual(claimed_url["status"], "downloading")
+
+
 class TelegramProxyParsingTests(unittest.TestCase):
     def test_parse_telegram_proxy_url_keeps_credentials(self):
         self.assertEqual(
@@ -710,6 +807,26 @@ class IndexTemplateTests(unittest.TestCase):
 
         self.assertNotIn("onclick=\"cancelJob(${job.id})\">取消</button>", html)
         self.assertNotIn("onclick=\"retryJob(${job.id})\">重试</button>", html)
+
+    def test_index_has_download_mode_selector_and_i18n_keys(self):
+        html = app.INDEX_HTML
+
+        for marker in [
+            'id="jobMode"',
+            'id="urlList"',
+            'id="exportPath"',
+            'id="exportFile"',
+            "function syncModeFields()",
+            "/api/exports/upload",
+            "mode_label: '下载模式'",
+            "mode_url: '链接 URL'",
+            "mode_export: '导出文件'",
+            "mode_label: 'Download mode'",
+            "col_mode: '模式'",
+            "let body = {mode}",
+            "body.urls = document.getElementById('urlList').value",
+        ]:
+            self.assertIn(marker, html)
 
     def test_index_has_client_side_i18n_language_switch(self):
         html = app.INDEX_HTML
@@ -1551,6 +1668,78 @@ class AuthHttpTests(unittest.TestCase):
             finally:
                 server.shutdown()
                 server.server_close()
+
+    def test_create_job_api_supports_url_and_export_modes_and_rejects_invalid(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with self.running_server(root) as (port, config):
+                auth_headers = self.login_headers(port)
+                store = JobStore(root / "state", config)
+                store.init()
+                export = store.exports_dir / "batch.json"
+                export.write_text('{"id":1,"messages":[]}', encoding="utf-8")
+
+                status, _, payload = self.request(
+                    port,
+                    "POST",
+                    "/api/jobs",
+                    {
+                        "mode": "url",
+                        "urls": ["https://t.me/name/123", "https://t.me/c/111/22"],
+                    },
+                    headers=auth_headers,
+                )
+                self.assertEqual(status, 201)
+                jobs = json.loads(payload)["jobs"]
+                self.assertEqual(len(jobs), 1)
+                self.assertEqual(jobs[0]["mode"], "url")
+                self.assertEqual(jobs[0]["message_id"], 0)
+
+                status, _, payload = self.request(
+                    port,
+                    "POST",
+                    "/api/jobs",
+                    {"mode": "export", "export_paths": ["batch.json"]},
+                    headers=auth_headers,
+                )
+                self.assertEqual(status, 201)
+                jobs = json.loads(payload)["jobs"]
+                self.assertEqual(jobs[0]["mode"], "export")
+                self.assertIn("batch.json", jobs[0]["input_payload"])
+
+                status, _, payload = self.request(
+                    port,
+                    "POST",
+                    "/api/jobs",
+                    {"mode": "url", "urls": ["https://example.com/x"]},
+                    headers=auth_headers,
+                )
+                self.assertEqual(status, 400)
+                self.assertIn("invalid telegram url", payload)
+
+                status, _, payload = self.request(
+                    port,
+                    "POST",
+                    "/api/jobs",
+                    {"mode": "export", "export_paths": ["../outside.json"]},
+                    headers=auth_headers,
+                )
+                self.assertEqual(status, 400)
+                self.assertTrue(
+                    "outside whitelist" in payload or "export file not found" in payload
+                )
+
+                status, _, payload = self.request(
+                    port,
+                    "POST",
+                    "/api/jobs",
+                    {"mode": "message_id", "message_ids": "23311"},
+                    headers=auth_headers,
+                )
+                self.assertEqual(status, 201)
+                jobs = json.loads(payload)["jobs"]
+                self.assertEqual(jobs[0]["mode"], "message_id")
+                self.assertEqual(jobs[0]["message_id"], 23311)
 
     def test_setup_api_returns_default_download_dir_and_accepts_blank_download_dir(self):
         with tempfile.TemporaryDirectory() as tmp:

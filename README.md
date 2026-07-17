@@ -24,6 +24,19 @@ proxy or VPN when remote access is required.
 The forwarder is only needed if you want this service to listen for messages
 and forward summaries into your own channel.
 
+### Download input modes
+
+The Web UI download form supports three job input modes:
+
+| Mode | Input | `tdl` behavior | Output naming |
+| --- | --- | --- | --- |
+| Message ID | Source chat + message ID(s) | `chat export` by id, then `download -f` | Existing Movies/TV rename pipeline |
+| URL | One or more `https://t.me/...` links (max 50) | `download -u` (repeated) | Native `tdl` filenames under the download directory |
+| Export file | Upload and/or path under `TGDL_STATE_DIR/exports` (max 32 MiB upload) | `download -f` | Native `tdl` filenames under the download directory |
+
+URL mode does not use the source selector (the link embeds the chat). Export
+paths are restricted to the exports whitelist root; path traversal is rejected.
+
 ## Language
 
 The Web UI supports **Chinese** and **English**. Use the **中文 | EN** control

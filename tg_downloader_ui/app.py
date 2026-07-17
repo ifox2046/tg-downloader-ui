@@ -66,6 +66,9 @@ LOGIN_FAILURE_WINDOW_SECONDS = 5 * 60
 LOGIN_FAILURE_LIMIT = 5
 LOGIN_BLOCK_SECONDS = 15 * 60
 MAX_JSON_BODY_BYTES = 1024 * 1024
+MAX_URLS = 50
+MAX_EXPORT_UPLOAD_BYTES = 32 * 1024 * 1024
+JOB_MODES = frozenset({"message_id", "url", "export"})
 COOKIE_SECURE = os.environ.get("TGDL_COOKIE_SECURE", "").strip().lower() in {
     "1",
     "true",
@@ -477,6 +480,132 @@ def parse_message_ids(raw: Any) -> list[int]:
     if not ids:
         raise ValueError("no message ids provided")
     return ids
+
+
+def is_telegram_url(text: str) -> bool:
+    try:
+        parsed = urllib.parse.urlparse(str(text).strip())
+    except ValueError:
+        return False
+    if parsed.scheme not in {"http", "https"}:
+        return False
+    host = (parsed.netloc or "").lower()
+    if host.startswith("www."):
+        host = host[4:]
+    if host not in {"t.me", "telegram.me"}:
+        return False
+    path = (parsed.path or "").strip("/")
+    if not path:
+        return False
+    parts = [part for part in path.split("/") if part]
+    if not parts:
+        return False
+    if parts[0] == "c":
+        return len(parts) >= 3 and parts[1].isdigit() and parts[2].split("?")[0].isdigit()
+    if len(parts) < 2:
+        return False
+    return parts[-1].split("?")[0].isdigit()
+
+
+def parse_urls(raw: Any) -> list[str]:
+    if isinstance(raw, list):
+        tokens = raw
+    else:
+        tokens = re.split(r"[\s,;，；]+", str(raw or ""))
+
+    urls: list[str] = []
+    for token in tokens:
+        text = str(token).strip()
+        if not text:
+            continue
+        if not is_telegram_url(text):
+            raise ValueError(f"invalid telegram url: {text}")
+        urls.append(text)
+    if not urls:
+        raise ValueError("no urls provided")
+    if len(urls) > MAX_URLS:
+        raise ValueError(f"too many urls (max {MAX_URLS})")
+    return urls
+
+
+def resolve_export_path(path: str | Path, exports_root: Path) -> Path:
+    root = Path(exports_root).resolve()
+    candidate = Path(path)
+    if not candidate.is_absolute():
+        candidate = root / candidate
+    resolved = candidate.resolve()
+    if not resolved.is_relative_to(root):
+        raise ValueError("export path outside whitelist")
+    if not resolved.is_file():
+        raise ValueError(f"export file not found: {path}")
+    return resolved
+
+
+def safe_export_filename(name: str) -> str:
+    base = Path(str(name or "")).name
+    base = INVALID_FILENAME_RE.sub("_", base).strip(" .")
+    if not base or base in {".", ".."}:
+        base = f"export_{int(time.time())}.json"
+    return base
+
+
+def parse_multipart_form(body: bytes, content_type: str) -> dict[str, Any]:
+    match = re.search(r"boundary=([^;]+)", content_type or "", re.I)
+    if not match:
+        raise ValueError("missing multipart boundary")
+    boundary = match.group(1).strip().strip('"')
+    if not boundary:
+        raise ValueError("missing multipart boundary")
+    delimiter = b"--" + boundary.encode("ascii", errors="ignore")
+    fields: dict[str, str] = {}
+    files: dict[str, tuple[str, bytes]] = {}
+    for raw_part in body.split(delimiter):
+        part = raw_part
+        if not part or part in (b"--", b"--\r\n", b"--\n"):
+            continue
+        if part.startswith(b"--"):
+            continue
+        if part.startswith(b"\r\n"):
+            part = part[2:]
+        elif part.startswith(b"\n"):
+            part = part[1:]
+        if part.endswith(b"\r\n"):
+            part = part[:-2]
+        elif part.endswith(b"\n"):
+            part = part[:-1]
+        header_blob, sep, content = part.partition(b"\r\n\r\n")
+        if not sep:
+            header_blob, sep, content = part.partition(b"\n\n")
+        if not sep:
+            continue
+        if content.endswith(b"\r\n"):
+            content = content[:-2]
+        elif content.endswith(b"\n"):
+            content = content[:-1]
+        headers = header_blob.decode("utf-8", errors="replace")
+        name_match = re.search(r'name="([^"]+)"', headers, re.I)
+        if not name_match:
+            continue
+        name = name_match.group(1)
+        filename_match = re.search(r'filename="([^"]*)"', headers, re.I)
+        if filename_match is not None:
+            files[name] = (filename_match.group(1), content)
+        else:
+            fields[name] = content.decode("utf-8", errors="replace")
+    return {"fields": fields, "files": files}
+
+
+def load_job_input_payload(raw: Any) -> dict[str, Any]:
+    if isinstance(raw, dict):
+        return raw
+    text = str(raw or "").strip()
+    if not text:
+        return {}
+    try:
+        data = json.loads(text)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return {}
+    return data if isinstance(data, dict) else {}
 
 
 def load_configured_telegram_proxy(state_dir: Path | None = None) -> str:
@@ -1121,16 +1250,21 @@ class JobStore:
             self.ensure_column(db, "source_id", "source_id TEXT NOT NULL DEFAULT ''")
             self.ensure_column(db, "source_label", "source_label TEXT NOT NULL DEFAULT ''")
             self.ensure_column(db, "source_chat", "source_chat TEXT NOT NULL DEFAULT ''")
+            self.ensure_column(db, "mode", "mode TEXT NOT NULL DEFAULT 'message_id'")
+            self.ensure_column(db, "input_payload", "input_payload TEXT NOT NULL DEFAULT ''")
             db.execute(
                 "UPDATE jobs SET download_dir = ? WHERE download_dir = ''",
                 (str(self.config_store.get_download_dir()),),
             )
             default_source = self.config_store.get_default_source()
+            # Legacy message_id rows only. URL/export jobs intentionally leave
+            # source_id/source_chat empty and must not be rewritten on restart.
             db.execute(
                 """
                 UPDATE jobs
                 SET source_id = ?, source_label = ?, source_chat = ?
-                WHERE source_id = '' OR source_chat = ''
+                WHERE (mode = 'message_id' OR mode = '' OR mode IS NULL)
+                  AND (source_id = '' OR source_chat = '')
                 """,
                 (
                     str(default_source["id"]),
@@ -1167,27 +1301,61 @@ class JobStore:
 
     def create_job(
         self,
-        message_id: int,
+        message_id: int = 0,
         download_dir: str | Path | None = None,
         source_id: str | None = None,
+        mode: str = "message_id",
+        input_payload: dict[str, Any] | None = None,
+        source_label: str | None = None,
+        source_chat: str | None = None,
     ) -> dict[str, Any]:
         now = utcish_now()
         job_download_dir = str(Path(download_dir or self.config_store.get_download_dir()))
-        source = self.config_store.get_source(source_id)
+        selected_mode = str(mode or "message_id").strip() or "message_id"
+        if selected_mode not in JOB_MODES:
+            raise ValueError(f"invalid mode: {selected_mode}")
+        payload = dict(input_payload or {})
+        payload_text = json.dumps(payload, ensure_ascii=False) if payload else ""
+
+        if selected_mode == "message_id":
+            source = self.config_store.get_source(source_id)
+            job_source_id = str(source["id"])
+            job_source_label = str(source["label"])
+            job_source_chat = str(source["chat"])
+            job_message_id = int(message_id)
+            if job_message_id <= 0:
+                raise ValueError("invalid message id")
+            queue_note = f"Queued message {job_message_id} from {job_source_label}\n"
+        else:
+            job_source_id = str(source_id or "")
+            job_source_label = str(source_label or selected_mode)
+            job_source_chat = str(source_chat or "")
+            job_message_id = 0
+            if selected_mode == "url":
+                urls = list(payload.get("urls") or [])
+                queue_note = f"Queued url job ({len(urls)} url(s))\n"
+            else:
+                export_paths = list(payload.get("export_paths") or [])
+                names = ", ".join(Path(str(path)).name for path in export_paths[:3])
+                queue_note = f"Queued export job: {names}\n"
+
         with self.lock, contextlib.closing(self.connect()) as db:
             cur = db.execute(
                 """
                 INSERT INTO jobs (
                     message_id, source_id, source_label, source_chat, status,
-                    download_dir, log_path, export_path, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, 'queued', ?, '', '', ?, ?)
+                    download_dir, log_path, export_path, mode, input_payload,
+                    created_at, updated_at
+                ) VALUES (?, ?, ?, ?, 'queued', ?, '', '', ?, ?, ?, ?)
                 """,
                 (
-                    message_id,
-                    str(source["id"]),
-                    str(source["label"]),
-                    str(source["chat"]),
+                    job_message_id,
+                    job_source_id,
+                    job_source_label,
+                    job_source_chat,
                     job_download_dir,
+                    selected_mode,
+                    payload_text,
                     now,
                     now,
                 ),
@@ -1200,7 +1368,7 @@ class JobStore:
                 (log_path, export_path, job_id),
             )
             db.commit()
-        self.append_log(job_id, f"Queued message {message_id} from {source['label']}\n")
+        self.append_log(job_id, queue_note)
         return self.get_job(job_id) or {}
 
     def get_job(self, job_id: int) -> dict[str, Any] | None:
@@ -1221,10 +1389,14 @@ class JobStore:
             ).fetchone()
             if not row:
                 return None
+            mode = str(row["mode"] if "mode" in row.keys() else "message_id")
+            mode = (mode or "message_id").strip() or "message_id"
+            # URL/export skip chat export; avoid flashing "exporting" in the UI.
+            claimed_status = "exporting" if mode == "message_id" else "downloading"
             db.execute(
                 """
                 UPDATE jobs
-                SET status = 'exporting', started_at = ?, updated_at = ?,
+                SET status = ?, started_at = ?, updated_at = ?,
                     attempts = attempts + 1, error = '',
                     progress = CASE WHEN resume_requested = 1 THEN progress ELSE 0 END,
                     downloaded = CASE WHEN resume_requested = 1 THEN downloaded ELSE '' END,
@@ -1232,7 +1404,7 @@ class JobStore:
                     process_pid = 0, cancel_requested = 0, pause_requested = 0
                 WHERE id = ?
                 """,
-                (now, now, row["id"]),
+                (claimed_status, now, now, row["id"]),
             )
             db.commit()
         return self.get_job(int(row["id"]))
@@ -1297,11 +1469,16 @@ class JobStore:
             return self.get_job(job_id) or {}
         if job["status"] not in {"failed", "canceled"}:
             raise ValueError("only paused, failed or canceled jobs can be resumed")
-        export_path = Path(str(job.get("export_path") or ""))
-        can_continue = bool(
-            export_path.exists()
-            and (str(job.get("source_file") or "") or str(job.get("final_path") or ""))
-        )
+        mode = str(job.get("mode") or "message_id").strip() or "message_id"
+        if mode in {"url", "export"}:
+            payload = load_job_input_payload(job.get("input_payload"))
+            can_continue = bool(payload.get("urls") or payload.get("export_paths"))
+        else:
+            export_path = Path(str(job.get("export_path") or ""))
+            can_continue = bool(
+                export_path.exists()
+                and (str(job.get("source_file") or "") or str(job.get("final_path") or ""))
+            )
         fields: dict[str, Any] = {
             "status": "queued",
             "speed": "",
@@ -1430,6 +1607,16 @@ class DownloadWorker(threading.Thread):
                 self.store.finish_job(job["id"], "failed", error=str(exc))
 
     def process_job(self, job: dict[str, Any]) -> None:
+        mode = str(job.get("mode") or "message_id").strip() or "message_id"
+        if mode == "url":
+            self.process_url_job(job)
+            return
+        if mode == "export":
+            self.process_export_job(job)
+            return
+        self.process_message_id_job(job)
+
+    def process_message_id_job(self, job: dict[str, Any]) -> None:
         job_id = int(job["id"])
         message_id = int(job["message_id"])
         download_dir = Path(job.get("download_dir") or self.store.config_store.get_download_dir())
@@ -1520,33 +1707,11 @@ class DownloadWorker(threading.Thread):
             )
             return
 
-        download_cmd = build_tdl_base_args() + [
-            "-t",
-            "1",
-            "-l",
-            "1",
-            "--pool",
-            "1",
-            "--disable-progress-ps",
-            "download",
-        ]
-        if resume_requested:
-            download_cmd += [
-                "--continue",
-                "-d",
-                str(download_dir),
-                "-f",
-                str(export_path),
-                "--skip-same",
-            ]
-        else:
-            download_cmd += [
-                "-d",
-                str(download_dir),
-                "-f",
-                str(export_path),
-                "--skip-same",
-            ]
+        download_cmd = self.build_download_command(
+            download_dir=download_dir,
+            export_paths=[export_path],
+            resume=resume_requested,
+        )
         self.store.update_job(job_id, status="downloading")
         download_code = self.run_command(job_id, download_cmd, status="downloading")
         if download_code == CANCEL_EXIT_CODE:
@@ -1583,6 +1748,124 @@ class DownloadWorker(threading.Thread):
             eta="",
             resume_requested=0,
         )
+
+    def process_url_job(self, job: dict[str, Any]) -> None:
+        job_id = int(job["id"])
+        download_dir = Path(job.get("download_dir") or self.store.config_store.get_download_dir())
+        download_dir.mkdir(parents=True, exist_ok=True)
+        log_path = Path(job["log_path"])
+        payload = load_job_input_payload(job.get("input_payload"))
+        urls = [str(item).strip() for item in (payload.get("urls") or []) if str(item).strip()]
+        if not urls:
+            raise ValueError("url job has no urls")
+        resume_requested = bool(int(job.get("resume_requested") or 0))
+        if not resume_requested:
+            log_path.write_text("", encoding="utf-8")
+            ensure_private_file(log_path)
+
+        title = urls[0] if len(urls) == 1 else f"{len(urls)} urls"
+        self.store.update_job(job_id, title=title, source_file=urls[0], source_label="url")
+        action = "Resume" if resume_requested else "Start"
+        self.store.append_log(job_id, f"{action} url job ({len(urls)} url(s))\n")
+        self.check_canceled(job_id)
+
+        download_cmd = self.build_download_command(
+            download_dir=download_dir,
+            urls=urls,
+            resume=resume_requested,
+        )
+        self.store.update_job(job_id, status="downloading")
+        download_code = self.run_command(job_id, download_cmd, status="downloading")
+        if download_code == CANCEL_EXIT_CODE:
+            raise JobCanceled("canceled by user")
+        if download_code != 0:
+            raise RuntimeError(f"tdl download failed with exit code {download_code}")
+        self.check_canceled(job_id)
+        self.store.finish_job(
+            job_id,
+            "done",
+            progress=100,
+            eta="",
+            resume_requested=0,
+            final_path=str(download_dir),
+        )
+
+    def process_export_job(self, job: dict[str, Any]) -> None:
+        job_id = int(job["id"])
+        download_dir = Path(job.get("download_dir") or self.store.config_store.get_download_dir())
+        download_dir.mkdir(parents=True, exist_ok=True)
+        log_path = Path(job["log_path"])
+        payload = load_job_input_payload(job.get("input_payload"))
+        raw_paths = [str(item).strip() for item in (payload.get("export_paths") or []) if str(item).strip()]
+        if not raw_paths:
+            raise ValueError("export job has no export paths")
+        export_paths = [
+            resolve_export_path(path, self.store.exports_dir) for path in raw_paths
+        ]
+        resume_requested = bool(int(job.get("resume_requested") or 0))
+        if not resume_requested:
+            log_path.write_text("", encoding="utf-8")
+            ensure_private_file(log_path)
+
+        names = ", ".join(path.name for path in export_paths[:3])
+        self.store.update_job(
+            job_id,
+            title=names,
+            source_file=export_paths[0].name,
+            source_label="export",
+        )
+        action = "Resume" if resume_requested else "Start"
+        self.store.append_log(job_id, f"{action} export job: {names}\n")
+        self.check_canceled(job_id)
+
+        download_cmd = self.build_download_command(
+            download_dir=download_dir,
+            export_paths=export_paths,
+            resume=resume_requested,
+        )
+        self.store.update_job(job_id, status="downloading")
+        download_code = self.run_command(job_id, download_cmd, status="downloading")
+        if download_code == CANCEL_EXIT_CODE:
+            raise JobCanceled("canceled by user")
+        if download_code != 0:
+            raise RuntimeError(f"tdl download failed with exit code {download_code}")
+        self.check_canceled(job_id)
+        self.store.finish_job(
+            job_id,
+            "done",
+            progress=100,
+            eta="",
+            resume_requested=0,
+            final_path=str(download_dir),
+            final_filename=export_paths[0].name,
+        )
+
+    def build_download_command(
+        self,
+        *,
+        download_dir: Path,
+        export_paths: list[Path] | None = None,
+        urls: list[str] | None = None,
+        resume: bool = False,
+    ) -> list[str]:
+        cmd = build_tdl_base_args() + [
+            "-t",
+            "1",
+            "-l",
+            "1",
+            "--pool",
+            "1",
+            "--disable-progress-ps",
+            "download",
+        ]
+        if resume:
+            cmd.append("--continue")
+        cmd.extend(["-d", str(download_dir), "--skip-same"])
+        for path in export_paths or []:
+            cmd.extend(["-f", str(path)])
+        for url in urls or []:
+            cmd.extend(["-u", str(url)])
+        return cmd
 
     def check_canceled(self, job_id: int) -> None:
         job = self.store.get_job(job_id)
@@ -1842,7 +2125,10 @@ INDEX_HTML = r"""<!doctype html>
     .panel { border:1px solid rgba(32,41,39,.1); border-radius:10px; background:rgba(255,253,248,.92); box-shadow:var(--shadow); }
     .panel.pad { padding:16px; }
     .workbench { display:grid; grid-template-columns:minmax(0, 1fr) 320px; gap:14px; align-items:stretch; margin-bottom:14px; }
-    .submit-band { display:grid; grid-template-columns:minmax(180px, .32fr) minmax(300px, 1fr) auto; gap:12px; align-items:end; }
+    .submit-band { display:grid; grid-template-columns:minmax(140px, .24fr) minmax(180px, .32fr) minmax(280px, 1fr) auto; gap:12px; align-items:end; }
+    .mode-fields { display:contents; }
+    .mode-fields.hidden { display:none; }
+    .status.mode { min-width:auto; margin-right:4px; background:var(--accent-soft); color:var(--accent-dark); }
     .form-row { display:grid; grid-template-columns:minmax(260px, 1fr) auto auto; gap:10px; align-items:end; }
     .password-grid { display:grid; grid-template-columns:minmax(220px, 1fr) minmax(220px, 1fr) auto; gap:10px; align-items:end; }
     .telegram-grid { display:grid; grid-template-columns:repeat(2, minmax(220px, 1fr)); gap:10px; align-items:end; }
@@ -1945,8 +2231,18 @@ INDEX_HTML = r"""<!doctype html>
           <section class="panel pad">
             <h2 data-i18n="submit_title">提交下载</h2>
             <div class="submit-band">
-              <div><label for="sourceSelect" data-i18n="source_label">资源来源</label><select id="sourceSelect"></select></div>
-              <div><label for="messageIds" data-i18n="message_ids">消息 ID</label><textarea id="messageIds" data-i18n-aria="message_ids" aria-label="消息 ID" placeholder="23311"></textarea></div>
+              <div><label for="jobMode" data-i18n="mode_label">下载模式</label><select id="jobMode"><option value="message_id" data-i18n="mode_message_id">消息 ID</option><option value="url" data-i18n="mode_url">链接 URL</option><option value="export" data-i18n="mode_export">导出文件</option></select></div>
+              <div id="modeMessageIdFields" class="mode-fields">
+                <div><label for="sourceSelect" data-i18n="source_label">资源来源</label><select id="sourceSelect"></select></div>
+                <div><label for="messageIds" data-i18n="message_ids">消息 ID</label><textarea id="messageIds" data-i18n-aria="message_ids" aria-label="消息 ID" placeholder="23311"></textarea></div>
+              </div>
+              <div id="modeUrlFields" class="mode-fields hidden">
+                <div style="grid-column:2 / 4"><label for="urlList" data-i18n="urls_label">Telegram 链接</label><textarea id="urlList" data-i18n-aria="urls_label" aria-label="Telegram 链接" placeholder="https://t.me/channel/123"></textarea></div>
+              </div>
+              <div id="modeExportFields" class="mode-fields hidden">
+                <div><label for="exportPath" data-i18n="export_path_label">导出路径</label><input id="exportPath" data-i18n-placeholder="export_path_placeholder" placeholder="example.json"></div>
+                <div><label for="exportFile" data-i18n="export_upload_label">上传导出 JSON</label><input id="exportFile" type="file" accept=".json,application/json"></div>
+              </div>
               <button id="submitBtn" type="button" data-i18n="submit_btn">提交下载</button>
             </div>
             <div class="message" id="submitMessage"></div>
@@ -1959,7 +2255,7 @@ INDEX_HTML = r"""<!doctype html>
         </section>
         <section class="band"><div class="band-head"><div><h2 data-i18n="forwarder_title">转发监控</h2><p data-i18n="forwarder_desc">监听来源、转发统计和 forwarder 状态。</p></div></div><div class="forwarder-grid" id="forwarderStatus"></div></section>
         <section class="band summary" id="summary"></section>
-        <section class="band"><div class="band-head"><div><h2 data-i18n="jobs_title">下载队列</h2><p data-i18n="jobs_desc">保留表格密度，突出媒体标题、进度和可恢复操作。</p></div></div><div class="table-wrap"><table><thead><tr><th data-i18n="col_job">任务</th><th data-i18n="col_source">来源</th><th data-i18n="col_message">消息</th><th data-i18n="col_status">状态</th><th data-i18n="col_title_error">片名/错误</th><th data-i18n="col_progress">进度</th><th data-i18n="col_speed">速度</th><th data-i18n="col_pid">PID</th><th data-i18n="col_dir">目录</th><th data-i18n="col_file">文件</th><th data-i18n="col_actions">操作</th></tr></thead><tbody id="jobsBody"></tbody></table></div><div class="band-head"><div><h2 data-i18n="log_title">任务输出</h2><p data-i18n="log_desc">查看选中任务或 forwarder 的运行日志。</p></div></div><pre class="log" id="logPanel"></pre></section>
+        <section class="band"><div class="band-head"><div><h2 data-i18n="jobs_title">下载队列</h2><p data-i18n="jobs_desc">保留表格密度，突出媒体标题、进度和可恢复操作。</p></div></div><div class="table-wrap"><table><thead><tr>        <th data-i18n="col_job">任务</th><th data-i18n="col_mode">模式</th><th data-i18n="col_source">来源</th><th data-i18n="col_message">标识</th><th data-i18n="col_status">状态</th><th data-i18n="col_title_error">片名/错误</th><th data-i18n="col_progress">进度</th><th data-i18n="col_speed">速度</th><th data-i18n="col_pid">PID</th><th data-i18n="col_dir">目录</th><th data-i18n="col_file">文件</th><th data-i18n="col_actions">操作</th></tr></thead><tbody id="jobsBody"></tbody></table></div><div class="band-head"><div><h2 data-i18n="log_title">任务输出</h2><p data-i18n="log_desc">查看选中任务或 forwarder 的运行日志。</p></div></div><pre class="log" id="logPanel"></pre></section>
       </section>
 
       <section class="page" id="page-paths">
@@ -2096,18 +2392,27 @@ INDEX_HTML = r"""<!doctype html>
         lang_label: '语言',
         submit_title: '提交下载',
         source_label: '资源来源',
+        mode_label: '下载模式',
+        mode_message_id: '消息 ID',
+        mode_url: '链接 URL',
+        mode_export: '导出文件',
         message_ids: '消息 ID',
+        urls_label: 'Telegram 链接',
+        export_path_label: '导出路径',
+        export_path_placeholder: 'exports 目录下的相对路径',
+        export_upload_label: '上传导出 JSON',
         submit_btn: '提交下载',
         activity_pill: '当前活动',
         queue_aside_title: '媒体下载队列',
-        queue_aside_desc: '任务会按媒体信息写入 Movies、TV 或普通文件目录。暂停后的任务可继续下载。',
+        queue_aside_desc: '消息 ID 模式会按媒体信息写入 Movies/TV；链接与导出模式使用 tdl 默认文件名。暂停后的任务可继续下载。',
         forwarder_title: '转发监控',
         forwarder_desc: '监听来源、转发统计和 forwarder 状态。',
         jobs_title: '下载队列',
         jobs_desc: '保留表格密度，突出媒体标题、进度和可恢复操作。',
         col_job: '任务',
+        col_mode: '模式',
         col_source: '来源',
-        col_message: '消息',
+        col_message: '标识',
         col_status: '状态',
         col_title_error: '片名/错误',
         col_progress: '进度',
@@ -2215,7 +2520,7 @@ INDEX_HTML = r"""<!doctype html>
         restart: '重启',
         log: '日志',
         empty_jobs_title: '还没有下载任务',
-        empty_jobs_desc: '选择来源并输入消息 ID，任务会进入队列。完成后文件会按媒体信息写入归档目录。',
+        empty_jobs_desc: '选择模式并提交消息 ID、链接或导出文件，任务会进入队列。',
         pause: '暂停',
         resume: '继续',
         delete: '删除',
@@ -2258,18 +2563,27 @@ INDEX_HTML = r"""<!doctype html>
         lang_label: 'Language',
         submit_title: 'Submit download',
         source_label: 'Source',
+        mode_label: 'Download mode',
+        mode_message_id: 'Message ID',
+        mode_url: 'URL',
+        mode_export: 'Export file',
         message_ids: 'Message IDs',
+        urls_label: 'Telegram links',
+        export_path_label: 'Export path',
+        export_path_placeholder: 'relative path under exports/',
+        export_upload_label: 'Upload export JSON',
         submit_btn: 'Submit download',
         activity_pill: 'Active now',
         queue_aside_title: 'Media download queue',
-        queue_aside_desc: 'Jobs write into Movies, TV, or general file folders from media metadata. Paused jobs can be resumed.',
+        queue_aside_desc: 'Message ID mode writes Movies/TV layouts from metadata. URL and export modes keep tdl native filenames. Paused jobs can be resumed.',
         forwarder_title: 'Forwarder monitor',
         forwarder_desc: 'Watched sources, forward stats, and forwarder state.',
         jobs_title: 'Download queue',
         jobs_desc: 'Dense table focused on titles, progress, and recoverable actions.',
         col_job: 'Job',
+        col_mode: 'Mode',
         col_source: 'Source',
-        col_message: 'Message',
+        col_message: 'Identifier',
         col_status: 'Status',
         col_title_error: 'Title / error',
         col_progress: 'Progress',
@@ -2377,7 +2691,7 @@ INDEX_HTML = r"""<!doctype html>
         restart: 'Restart',
         log: 'Log',
         empty_jobs_title: 'No download jobs yet',
-        empty_jobs_desc: 'Pick a source and enter message IDs to queue jobs. Finished files are archived from media metadata.',
+        empty_jobs_desc: 'Choose a mode and submit message IDs, links, or an export file to queue downloads.',
         pause: 'Pause',
         resume: 'Resume',
         delete: 'Delete',
@@ -2491,12 +2805,16 @@ INDEX_HTML = r"""<!doctype html>
     }
     function escapeHtml(value) { return String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[ch])); }
     async function api(path, options = {}) {
-      const method = String(options.method || 'GET').toUpperCase();
-      const headers = {'Content-Type':'application/json', ...(options.headers || {})};
-      if (!['GET','HEAD'].includes(method) && csrfToken) { headers['X-CSRF-Token'] = csrfToken; }
-      const res = await fetch(path, {...options, headers});
+      const headers = Object.assign({}, options.headers || {});
+      const isForm = (typeof FormData !== 'undefined') && options.body instanceof FormData;
+      if (!isForm && !headers['Content-Type']) { headers['Content-Type'] = 'application/json'; }
+      if (csrfToken && options.method && options.method !== 'GET') { headers['X-CSRF-Token'] = csrfToken; }
+      const res = await fetch(path, Object.assign({}, options, {headers, credentials:'same-origin'}));
       if (res.status === 401) { location.href = '/login'; throw new Error(t('need_login')); }
-      if (!res.ok) { const text = await res.text(); throw new Error(text || res.statusText); }
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(text.trim() || res.statusText);
+      }
       const type = res.headers.get('Content-Type') || '';
       return type.includes('application/json') ? res.json() : res.text();
     }
@@ -2651,13 +2969,65 @@ INDEX_HTML = r"""<!doctype html>
       } catch (err) { el.className = 'message error'; el.textContent = err.message; }
     }
     async function logout() { await api('/api/auth/logout', {method:'POST', body:'{}'}); location.href = '/login'; }
+    function syncModeFields() {
+      const mode = document.getElementById('jobMode').value || 'message_id';
+      document.getElementById('modeMessageIdFields').classList.toggle('hidden', mode !== 'message_id');
+      document.getElementById('modeUrlFields').classList.toggle('hidden', mode !== 'url');
+      document.getElementById('modeExportFields').classList.toggle('hidden', mode !== 'export');
+    }
+    function jobIdentifier(job) {
+      const mode = job.mode || 'message_id';
+      let payload = {};
+      try { payload = job.input_payload ? JSON.parse(job.input_payload) : {}; } catch (_) { payload = {}; }
+      if (mode === 'url') {
+        const urls = payload.urls || [];
+        if (!urls.length) return '';
+        const first = String(urls[0]);
+        return urls.length > 1 ? `${first} (+${urls.length - 1})` : first;
+      }
+      if (mode === 'export') {
+        const paths = payload.export_paths || [];
+        if (!paths.length) return job.source_file || '';
+        const name = String(paths[0]).split(/[\\/]/).pop();
+        return paths.length > 1 ? `${name} (+${paths.length - 1})` : name;
+      }
+      return job.message_id || '';
+    }
+    function modeLabel(mode) {
+      const key = mode === 'url' ? 'mode_url' : (mode === 'export' ? 'mode_export' : 'mode_message_id');
+      return t(key);
+    }
     async function submitJobs() {
       const btn = document.getElementById('submitBtn');
       const msg = document.getElementById('submitMessage');
       btn.disabled = true; msg.className = 'message'; msg.textContent = '';
       try {
-        await api('/api/jobs', {method:'POST', body:JSON.stringify({message_ids:document.getElementById('messageIds').value, source_id:document.getElementById('sourceSelect').value})});
+        const mode = document.getElementById('jobMode').value || 'message_id';
+        let body = {mode};
+        if (mode === 'message_id') {
+          body.message_ids = document.getElementById('messageIds').value;
+          body.source_id = document.getElementById('sourceSelect').value;
+        } else if (mode === 'url') {
+          body.urls = document.getElementById('urlList').value;
+        } else {
+          const exportPaths = [];
+          const pathValue = document.getElementById('exportPath').value.trim();
+          if (pathValue) { exportPaths.push(pathValue); }
+          const fileInput = document.getElementById('exportFile');
+          if (fileInput.files && fileInput.files[0]) {
+            const form = new FormData();
+            form.append('file', fileInput.files[0]);
+            const upload = await api('/api/exports/upload', {method:'POST', body:form});
+            if (upload.path) { exportPaths.push(upload.path); }
+          }
+          if (!exportPaths.length) { throw new Error(t('export_path_label')); }
+          body.export_paths = exportPaths;
+        }
+        await api('/api/jobs', {method:'POST', body:JSON.stringify(body)});
         document.getElementById('messageIds').value = '';
+        document.getElementById('urlList').value = '';
+        document.getElementById('exportPath').value = '';
+        document.getElementById('exportFile').value = '';
         msg.className = 'message good'; msg.textContent = t('jobs_queued');
         await refreshJobs();
       } catch (err) { msg.className = 'message error'; msg.textContent = err.message; }
@@ -2744,7 +3114,7 @@ INDEX_HTML = r"""<!doctype html>
       lastJobs = jobs || [];
       const body = document.getElementById('jobsBody');
       if (!lastJobs.length) {
-        body.innerHTML = `<tr><td colspan="11"><div class="empty-state"><strong>${t('empty_jobs_title')}</strong><p class="muted">${t('empty_jobs_desc')}</p></div></td></tr>`;
+        body.innerHTML = `<tr><td colspan="12"><div class="empty-state"><strong>${t('empty_jobs_title')}</strong><p class="muted">${t('empty_jobs_desc')}</p></div></td></tr>`;
         return;
       }
       body.innerHTML = lastJobs.map(job => {
@@ -2753,7 +3123,9 @@ INDEX_HTML = r"""<!doctype html>
         const resume = ['paused','failed','canceled'].includes(job.status) ? `<button class="secondary" onclick="resumeJob(${job.id})">${t('resume')}</button>` : '';
         const pause = active ? `<button class="secondary" onclick="pauseJob(${job.id})">${t('pause')}</button>` : '';
         const remove = !['exporting','downloading','renaming','paused'].includes(job.status) ? `<button class="danger" onclick="deleteJob(${job.id})">${t('delete')}</button>` : '';
-        return `<tr><td class="mono">#${job.id}</td><td>${escapeHtml(job.source_label || job.source_chat || '')}</td><td class="mono">${job.message_id}</td><td><span class="status ${job.status}">${statusLabel(job.status)}</span></td><td class="title-cell">${escapeHtml(job.title || job.error || '')}</td><td><div class="bar"><i style="width:${pct}%"></i></div><span class="muted">${pct.toFixed(1)}%</span></td><td>${escapeHtml(job.speed || '')}</td><td class="mono">${job.process_pid || ''}</td><td class="path-cell">${escapeHtml(job.download_dir || '')}</td><td class="title-cell">${escapeHtml(job.final_path || job.source_file || '')}</td><td class="actions"><button class="secondary" onclick="loadLog(${job.id})">${t('log')}</button>${pause}${resume}${remove}</td></tr>`;
+        const mode = job.mode || 'message_id';
+        const sourceText = mode === 'message_id' ? (job.source_label || job.source_chat || '') : modeLabel(mode);
+        return `<tr><td class="mono">#${job.id}</td><td><span class="status mode">${escapeHtml(modeLabel(mode))}</span></td><td>${escapeHtml(sourceText)}</td><td class="mono title-cell">${escapeHtml(jobIdentifier(job))}</td><td><span class="status ${job.status}">${statusLabel(job.status)}</span></td><td class="title-cell">${escapeHtml(job.title || job.error || '')}</td><td><div class="bar"><i style="width:${pct}%"></i></div><span class="muted">${pct.toFixed(1)}%</span></td><td>${escapeHtml(job.speed || '')}</td><td class="mono">${job.process_pid || ''}</td><td class="path-cell">${escapeHtml(job.download_dir || '')}</td><td class="title-cell">${escapeHtml(job.final_path || job.source_file || '')}</td><td class="actions"><button class="secondary" onclick="loadLog(${job.id})">${t('log')}</button>${pause}${resume}${remove}</td></tr>`;
       }).join('');
     }
     async function refreshJobs() {
@@ -2765,6 +3137,7 @@ INDEX_HTML = r"""<!doctype html>
     async function refreshForwarder() { renderForwarder(await api('/api/forwarder/status')); }
     async function refreshAll() { await Promise.all([refreshJobs(), refreshForwarder()]); }
     function onI18nApplied() {
+      syncModeFields();
       const active = document.querySelector('.nav-item.active');
       showPage(active ? active.dataset.page : (location.hash || '#downloads').slice(1));
       renderSources();
@@ -2775,7 +3148,9 @@ INDEX_HTML = r"""<!doctype html>
       if (lastTelegramConfig) { applyTelegramConfig(lastTelegramConfig, { resetHash: false }); }
     }
     document.querySelectorAll('.nav-item').forEach(btn => btn.addEventListener('click', () => showPage(btn.dataset.page)));
+    document.getElementById('jobMode').addEventListener('change', syncModeFields);
     document.getElementById('submitBtn').addEventListener('click', submitJobs);
+    syncModeFields();
     document.getElementById('addSourceBtn').addEventListener('click', () => addSourceRow({}, false));
     document.getElementById('saveSourcesBtn').addEventListener('click', saveSources);
     document.getElementById('saveConfigBtn').addEventListener('click', saveConfig);
@@ -4499,15 +4874,100 @@ class RequestHandler(BaseHTTPRequestHandler):
             except Exception as exc:  # noqa: BLE001 - API boundary
                 return self.send_error_text(HTTPStatus.BAD_REQUEST, str(exc))
 
+        if parsed.path == "/api/exports/upload":
+            try:
+                content_type = self.headers.get("Content-Type", "")
+                if "multipart/form-data" not in content_type.lower():
+                    return self.send_error_text(
+                        HTTPStatus.BAD_REQUEST, "multipart/form-data required"
+                    )
+                length = int(self.headers.get("Content-Length") or 0)
+                if length <= 0:
+                    return self.send_error_text(HTTPStatus.BAD_REQUEST, "empty upload")
+                if length > MAX_EXPORT_UPLOAD_BYTES:
+                    return self.send_error_text(
+                        HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
+                        f"export upload too large (max {MAX_EXPORT_UPLOAD_BYTES} bytes)",
+                    )
+                body = self.rfile.read(length)
+                form = parse_multipart_form(body, content_type)
+                file_entry = form["files"].get("file") or form["files"].get("export")
+                if not file_entry:
+                    return self.send_error_text(HTTPStatus.BAD_REQUEST, "file field required")
+                filename, content = file_entry
+                if len(content) > MAX_EXPORT_UPLOAD_BYTES:
+                    return self.send_error_text(
+                        HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
+                        f"export upload too large (max {MAX_EXPORT_UPLOAD_BYTES} bytes)",
+                    )
+                safe_name = safe_export_filename(filename)
+                ensure_private_dir(self.store.exports_dir)
+                target = self.store.exports_dir / safe_name
+                if target.exists():
+                    stem = target.stem
+                    suffix = target.suffix
+                    target = self.store.exports_dir / f"{stem}_{int(time.time())}{suffix}"
+                target.write_bytes(content)
+                ensure_private_file(target)
+                relative = target.relative_to(self.store.exports_dir.resolve()).as_posix()
+                return self.send_json(
+                    {"path": relative, "name": target.name, "size": len(content)},
+                    status=HTTPStatus.CREATED,
+                )
+            except Exception as exc:  # noqa: BLE001 - API boundary
+                return self.send_error_text(HTTPStatus.BAD_REQUEST, str(exc))
+
         if parsed.path == "/api/jobs":
             try:
                 payload = self.read_json()
-                message_ids = parse_message_ids(payload.get("message_ids"))
-                source_id = str(payload.get("source_id") or "")
-                jobs = [
-                    self.store.create_job(message_id, source_id=source_id)
-                    for message_id in message_ids
-                ]
+                mode = str(payload.get("mode") or "message_id").strip() or "message_id"
+                if mode not in JOB_MODES:
+                    raise ValueError(f"invalid mode: {mode}")
+                if mode == "message_id":
+                    message_ids = parse_message_ids(payload.get("message_ids"))
+                    source_id = str(payload.get("source_id") or "")
+                    jobs = [
+                        self.store.create_job(
+                            message_id,
+                            source_id=source_id,
+                            mode="message_id",
+                        )
+                        for message_id in message_ids
+                    ]
+                elif mode == "url":
+                    urls = parse_urls(payload.get("urls"))
+                    jobs = [
+                        self.store.create_job(
+                            0,
+                            mode="url",
+                            input_payload={"urls": urls},
+                            source_label="url",
+                            source_chat="",
+                        )
+                    ]
+                else:
+                    raw_paths = payload.get("export_paths") or []
+                    if isinstance(raw_paths, str):
+                        raw_paths = [item for item in re.split(r"[\n,;]+", raw_paths) if item.strip()]
+                    if not isinstance(raw_paths, list) or not raw_paths:
+                        raise ValueError("no export paths provided")
+                    resolved = [
+                        resolve_export_path(str(path), self.store.exports_dir)
+                        for path in raw_paths
+                    ]
+                    relative_paths = [
+                        path.relative_to(self.store.exports_dir.resolve()).as_posix()
+                        for path in resolved
+                    ]
+                    jobs = [
+                        self.store.create_job(
+                            0,
+                            mode="export",
+                            input_payload={"export_paths": relative_paths},
+                            source_label="export",
+                            source_chat="",
+                        )
+                    ]
                 return self.send_json({"jobs": jobs}, status=HTTPStatus.CREATED)
             except Exception as exc:  # noqa: BLE001 - API boundary
                 return self.send_error_text(HTTPStatus.BAD_REQUEST, str(exc))
@@ -4640,7 +5100,13 @@ class RequestHandler(BaseHTTPRequestHandler):
         if length < 0:
             self.send_error_text(HTTPStatus.BAD_REQUEST, "invalid content length")
             return True
-        if length > MAX_JSON_BODY_BYTES:
+        path = urllib.parse.urlparse(self.path).path
+        limit = (
+            MAX_EXPORT_UPLOAD_BYTES
+            if path == "/api/exports/upload"
+            else MAX_JSON_BODY_BYTES
+        )
+        if length > limit:
             self.send_error_text(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, "request body too large")
             return True
         return False

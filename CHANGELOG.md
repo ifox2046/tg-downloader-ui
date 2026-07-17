@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Support three download job modes: message ID (existing), Telegram URL (`tdl download -u`), and export JSON (`tdl download -f`) with upload/whitelist path under `exports/`.
 - Install `python-socks` and `PySocks` with the Python package/Docker image so Telethon SOCKS proxies work.
 - Document the recommended bot → private channel → message-ID download workflow in README (EN/ZH).
 - Add Web UI Chinese/English language switch (`localStorage` + browser language default).
