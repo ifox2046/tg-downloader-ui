@@ -226,7 +226,11 @@ docker compose run --rm web tdl login --storage type=bolt,path=/tdl/data
 3. `config.json`
 4. 安全默认值
 
+对于 `max_concurrent_jobs`：Web UI / `config.json` 一旦保存后以配置文件为准；`TGDL_MAX_CONCURRENT_JOBS` 仅在该键缺失时（首次启动 / 无人值守默认）生效。
+
 `config.json` 位于 `TGDL_STATE_DIR` 下；Docker 中为 `/config`。
+
+在 **路径设置** 中可配置 **最大并发下载任务**（1–8，默认 1）。并发是任务级（多个 `tdl` 进程）；单任务内 `tdl -t/-l/--pool` 仍固定为 1。
 
 | 名称 | 是否必需 | 默认值 | 说明 |
 | --- | --- | --- | --- |
@@ -234,6 +238,7 @@ docker compose run --rm web tdl login --storage type=bolt,path=/tdl/data
 | `TGDL_PORT` | 否 | `9910` | Web UI 端口。 |
 | `TGDL_STATE_DIR` | 否 | 用户状态目录 | 配置、数据库、日志和转发器状态。 |
 | `TGDL_DOWNLOAD_DIR` | 初始化时 | 用户下载目录 | 默认下载目录。 |
+| `TGDL_MAX_CONCURRENT_JOBS` | 否 | `1` | 最大并发下载任务数（1–8）。仅当 `config.json` 中没有 `max_concurrent_jobs` 时生效；Web UI 保存路径/运行设置后以 `config.json` 为准。提高并发可能触发 Telegram 限流并加重磁盘负载；暂停中的任务仍占用并发名额。 |
 | `TGDL_TDL_BIN` | 否 | `tdl` | `tdl` 二进制文件路径。 |
 | `TGDL_TDL_STORAGE` | 否 | 状态目录内的 Bolt DB | `tdl --storage` 参数值。 |
 | `TGDL_TDL_LOG` | 否 | 状态目录内日志 | 用于读取 `tdl` 诊断信息的日志路径。 |

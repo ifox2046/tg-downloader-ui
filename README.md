@@ -296,7 +296,11 @@ Configuration priority:
 3. `config.json`
 4. safe defaults
 
+For `max_concurrent_jobs`, the Web UI / `config.json` value wins once saved. `TGDL_MAX_CONCURRENT_JOBS` applies only when that key is missing (first-start / unattended defaults).
+
 `config.json` is stored under `TGDL_STATE_DIR`. In Docker this is `/config`.
+
+On **路径设置 / Paths**, set **Max concurrent download jobs** (1–8, default 1). Parallelism is job-level (multiple `tdl` processes); per-job `tdl -t/-l/--pool` stay at 1.
 
 | Name | Required | Default | Description |
 | --- | --- | --- | --- |
@@ -304,6 +308,7 @@ Configuration priority:
 | `TGDL_PORT` | no | `9910` | Web UI port. |
 | `TGDL_STATE_DIR` | no | user state dir | Config, database, logs, forwarder status. |
 | `TGDL_DOWNLOAD_DIR` | setup | user downloads dir | Default download directory. |
+| `TGDL_MAX_CONCURRENT_JOBS` | no | `1` | Max concurrent download jobs (1–8). Used only when `max_concurrent_jobs` is missing from `config.json`. After the Web UI saves paths/runtime settings, `config.json` is authoritative. Higher values may trigger Telegram rate limits and increase disk load; paused jobs still count toward the limit. |
 | `TGDL_TDL_BIN` | no | `tdl` | Path to the `tdl` binary. |
 | `TGDL_TDL_STORAGE` | no | state-local bolt DB | `tdl --storage` value. |
 | `TGDL_TDL_LOG` | no | state-local log | Path tailed for `tdl` diagnostic details. |

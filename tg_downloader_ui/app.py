@@ -86,6 +86,8 @@ COOKIE_SECURE = os.environ.get("TGDL_COOKIE_SECURE", "").strip().lower() in {
     "on",
 }
 ACTIVE_STATUSES = {"exporting", "downloading", "renaming", "paused"}
+MAX_CONCURRENT_JOBS_LIMIT = 8
+DEFAULT_MAX_CONCURRENT_JOBS = 1
 CANCEL_EXIT_CODE = 130
 PROCESS_PAUSE_SIGNAL = getattr(signal, "SIGSTOP", None)
 PROCESS_CONTINUE_SIGNAL = getattr(signal, "SIGCONT", None)
@@ -114,6 +116,29 @@ TDL_LOGIN_ENTRY: dict[str, Any] | None = None
 ANSI_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 INVALID_FILENAME_RE = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 SPACE_RE = re.compile(r"\s+")
+
+
+def normalize_max_concurrent_jobs(raw: Any) -> int:
+    """Normalize max concurrent jobs to an int in [1, MAX_CONCURRENT_JOBS_LIMIT]."""
+    if raw is None or (isinstance(raw, str) and not str(raw).strip()):
+        raise ValueError(
+            f"max_concurrent_jobs must be an integer between 1 and {MAX_CONCURRENT_JOBS_LIMIT}"
+        )
+    try:
+        if isinstance(raw, bool):
+            raise ValueError
+        if isinstance(raw, float) and not raw.is_integer():
+            raise ValueError
+        value = int(raw)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            f"max_concurrent_jobs must be an integer between 1 and {MAX_CONCURRENT_JOBS_LIMIT}"
+        ) from exc
+    if value < 1 or value > MAX_CONCURRENT_JOBS_LIMIT:
+        raise ValueError(
+            f"max_concurrent_jobs must be an integer between 1 and {MAX_CONCURRENT_JOBS_LIMIT}"
+        )
+    return value
 
 
 @dataclasses.dataclass(frozen=True)
@@ -1119,6 +1144,28 @@ class ConfigStore:
             self.save()
         return path
 
+    def get_max_concurrent_jobs(self) -> int:
+        with self.lock:
+            if "max_concurrent_jobs" in self.data:
+                try:
+                    return normalize_max_concurrent_jobs(self.data.get("max_concurrent_jobs"))
+                except ValueError:
+                    return DEFAULT_MAX_CONCURRENT_JOBS
+            env_raw = os.environ.get("TGDL_MAX_CONCURRENT_JOBS")
+            if env_raw is not None and str(env_raw).strip() != "":
+                try:
+                    return normalize_max_concurrent_jobs(env_raw)
+                except ValueError:
+                    return DEFAULT_MAX_CONCURRENT_JOBS
+            return DEFAULT_MAX_CONCURRENT_JOBS
+
+    def set_max_concurrent_jobs(self, value: Any) -> int:
+        normalized = normalize_max_concurrent_jobs(value)
+        with self.lock:
+            self.data["max_concurrent_jobs"] = normalized
+            self.save()
+        return normalized
+
     def get_username(self) -> str:
         with self.lock:
             return str(self.data.get("auth", {}).get("username") or self.default_user)
@@ -1430,7 +1477,18 @@ class JobStore:
 
     def claim_next(self) -> dict[str, Any] | None:
         now = utcish_now()
+        max_concurrent = self.config_store.get_max_concurrent_jobs()
+        active_statuses = tuple(sorted(ACTIVE_STATUSES))
+        placeholders = ", ".join("?" for _ in active_statuses)
         with self.lock, contextlib.closing(self.connect()) as db:
+            active_count = int(
+                db.execute(
+                    f"SELECT COUNT(*) FROM jobs WHERE status IN ({placeholders})",
+                    active_statuses,
+                ).fetchone()[0]
+            )
+            if active_count >= max_concurrent:
+                return None
             row = db.execute(
                 "SELECT * FROM jobs WHERE status = 'queued' ORDER BY id ASC LIMIT 1"
             ).fetchone()
@@ -1628,13 +1686,24 @@ class JobStore:
 
 
 class DownloadWorker(threading.Thread):
-    def __init__(self, store: JobStore, stop_event: threading.Event) -> None:
-        super().__init__(name="download-worker", daemon=True)
+    def __init__(
+        self,
+        store: JobStore,
+        stop_event: threading.Event,
+        *,
+        worker_id: int = 0,
+        pool: "DownloadWorkerPool | None" = None,
+    ) -> None:
+        super().__init__(name=f"download-worker-{worker_id}", daemon=True)
         self.store = store
         self.stop_event = stop_event
+        self.worker_id = worker_id
+        self.pool = pool
 
     def run(self) -> None:
         while not self.stop_event.is_set():
+            if self.pool is not None and not self.pool.should_worker_run(self.worker_id):
+                return
             job = self.store.claim_next()
             if not job:
                 self.stop_event.wait(1.0)
@@ -2223,6 +2292,74 @@ class DownloadWorker(threading.Thread):
         return f"{value:.2f} TB"
 
 
+class DownloadWorkerPool:
+    """N daemon workers sharing one JobStore; resize without full process restart."""
+
+    def __init__(
+        self,
+        store: JobStore,
+        stop_event: threading.Event,
+        size: int | None = None,
+    ) -> None:
+        self.store = store
+        self.stop_event = stop_event
+        self._lock = threading.RLock()
+        self._desired = max(1, int(size if size is not None else store.config_store.get_max_concurrent_jobs()))
+        self._workers: list[DownloadWorker] = []
+        self._next_id = 0
+
+    def start(self) -> None:
+        with self._lock:
+            self._ensure_workers_locked()
+
+    def desired_size(self) -> int:
+        with self._lock:
+            return self._desired
+
+    def should_worker_run(self, worker_id: int) -> bool:
+        with self._lock:
+            # Keep the lowest worker_ids when shrinking: a worker exits when
+            # enough lower-id workers are already alive to cover desired size.
+            lower_alive = sum(
+                1 for w in self._workers if w.is_alive() and w.worker_id < worker_id
+            )
+            return lower_alive < self._desired
+
+    def resize(self, size: int) -> int:
+        normalized = normalize_max_concurrent_jobs(size)
+        with self._lock:
+            self._desired = normalized
+            self._prune_dead_locked()
+            self._ensure_workers_locked()
+            return self._desired
+
+    def join(self, timeout: float | None = None) -> None:
+        deadline = None if timeout is None else time.monotonic() + timeout
+        with self._lock:
+            workers = list(self._workers)
+        for worker in workers:
+            remaining = None
+            if deadline is not None:
+                remaining = max(0.0, deadline - time.monotonic())
+            worker.join(timeout=remaining)
+
+    def _prune_dead_locked(self) -> None:
+        self._workers = [w for w in self._workers if w.is_alive()]
+
+    def _ensure_workers_locked(self) -> None:
+        self._prune_dead_locked()
+        while len(self._workers) < self._desired and not self.stop_event.is_set():
+            worker = DownloadWorker(
+                self.store,
+                self.stop_event,
+                worker_id=self._next_id,
+                pool=self,
+            )
+            self._next_id += 1
+            self._workers.append(worker)
+            worker.start()
+
+
 INDEX_HTML = r"""<!doctype html>
 <html lang="zh-CN">
 <head>
@@ -2276,9 +2413,13 @@ INDEX_HTML = r"""<!doctype html>
     .panel { border:1px solid rgba(32,41,39,.1); border-radius:10px; background:rgba(255,253,248,.92); box-shadow:var(--shadow); }
     .panel.pad { padding:16px; }
     .workbench { display:grid; grid-template-columns:minmax(0, 1fr) 320px; gap:14px; align-items:stretch; margin-bottom:14px; }
-    .submit-band { display:grid; grid-template-columns:minmax(140px, .24fr) minmax(180px, .32fr) minmax(280px, 1fr) auto; gap:12px; align-items:end; }
-    .mode-fields { display:contents; }
+    .submit-band { display:grid; grid-template-columns:160px minmax(0, 1fr) auto; gap:12px; align-items:end; }
+    .submit-mode { min-width:0; }
+    .submit-fields { min-width:0; }
+    .mode-fields { display:grid; grid-template-columns:minmax(160px, .4fr) minmax(0, 1fr); gap:12px; align-items:end; }
     .mode-fields.hidden { display:none; }
+    .mode-fields.mode-url { grid-template-columns:1fr; }
+    .mode-fields.mode-export { grid-template-columns:minmax(0, 1fr) minmax(0, 1fr); }
     .status.mode { min-width:auto; margin-right:4px; background:var(--accent-soft); color:var(--accent-dark); }
     .form-row { display:grid; grid-template-columns:minmax(260px, 1fr) auto auto; gap:10px; align-items:end; }
     .password-grid { display:grid; grid-template-columns:minmax(220px, 1fr) minmax(220px, 1fr) auto; gap:10px; align-items:end; }
@@ -2383,17 +2524,19 @@ INDEX_HTML = r"""<!doctype html>
           <section class="panel pad">
             <h2 data-i18n="submit_title">提交下载</h2>
             <div class="submit-band">
-              <div><label for="jobMode" data-i18n="mode_label">下载模式</label><select id="jobMode"><option value="message_id" data-i18n="mode_message_id">消息 ID</option><option value="url" data-i18n="mode_url">链接 URL</option><option value="export" data-i18n="mode_export">导出文件</option></select></div>
-              <div id="modeMessageIdFields" class="mode-fields">
-                <div><label for="sourceSelect" data-i18n="source_label">资源来源</label><select id="sourceSelect"></select></div>
-                <div><label for="messageIds" data-i18n="message_ids">消息 ID</label><textarea id="messageIds" data-i18n-aria="message_ids" aria-label="消息 ID" placeholder="23311"></textarea></div>
-              </div>
-              <div id="modeUrlFields" class="mode-fields hidden">
-                <div style="grid-column:2 / 4"><label for="urlList" data-i18n="urls_label">Telegram 链接</label><textarea id="urlList" data-i18n-aria="urls_label" aria-label="Telegram 链接" placeholder="https://t.me/channel/123"></textarea></div>
-              </div>
-              <div id="modeExportFields" class="mode-fields hidden">
-                <div><label for="exportPath" data-i18n="export_path_label">导出路径</label><input id="exportPath" data-i18n-placeholder="export_path_placeholder" placeholder="example.json"></div>
-                <div><label for="exportFile" data-i18n="export_upload_label">上传导出 JSON</label><input id="exportFile" type="file" accept=".json,application/json"></div>
+              <div class="submit-mode"><label for="jobMode" data-i18n="mode_label">下载模式</label><select id="jobMode"><option value="message_id" data-i18n="mode_message_id">消息 ID</option><option value="url" data-i18n="mode_url">链接 URL</option><option value="export" data-i18n="mode_export">导出文件</option></select></div>
+              <div class="submit-fields">
+                <div id="modeMessageIdFields" class="mode-fields">
+                  <div><label for="sourceSelect" data-i18n="source_label">资源来源</label><select id="sourceSelect"></select></div>
+                  <div><label for="messageIds" data-i18n="message_ids">消息 ID</label><textarea id="messageIds" data-i18n-aria="message_ids" aria-label="消息 ID" placeholder="23311"></textarea></div>
+                </div>
+                <div id="modeUrlFields" class="mode-fields mode-url hidden">
+                  <div><label for="urlList" data-i18n="urls_label">Telegram 链接</label><textarea id="urlList" data-i18n-aria="urls_label" aria-label="Telegram 链接" placeholder="https://t.me/channel/123"></textarea></div>
+                </div>
+                <div id="modeExportFields" class="mode-fields mode-export hidden">
+                  <div><label for="exportPath" data-i18n="export_path_label">导出路径</label><input id="exportPath" data-i18n-placeholder="export_path_placeholder" placeholder="example.json"></div>
+                  <div><label for="exportFile" data-i18n="export_upload_label">上传导出 JSON</label><input id="exportFile" type="file" accept=".json,application/json"></div>
+                </div>
               </div>
               <button id="submitBtn" type="button" data-i18n="submit_btn">提交下载</button>
             </div>
@@ -2417,6 +2560,10 @@ INDEX_HTML = r"""<!doctype html>
             <div><label for="downloadDir" data-i18n="current_path">当前路径</label><input id="downloadDir"></div>
             <button class="secondary" id="browseDirBtn" type="button" data-i18n="browse_dir">选择目录</button>
             <button id="saveConfigBtn" type="button" data-i18n="save">保存</button>
+          </div>
+          <div class="form-row" style="margin-top:12px; grid-template-columns:minmax(180px, .35fr) minmax(0, 1fr);">
+            <div><label for="maxConcurrentJobs" data-i18n="concurrency_label">最大并发下载任务</label><input id="maxConcurrentJobs" type="number" min="1" max="8" step="1" value="1"></div>
+            <p class="muted" style="margin:0; align-self:end; padding-bottom:8px;" data-i18n="concurrency_help">范围 1–8，默认 1。提高并发可能触发 Telegram 限流并加重磁盘负载；暂停中的任务仍占用并发名额。</p>
           </div>
           <div class="message" id="configMessage"></div>
         </section>
@@ -2597,6 +2744,8 @@ INDEX_HTML = r"""<!doctype html>
         log_desc: '查看选中任务或 forwarder 的运行日志。',
         paths_title: '下载目录',
         current_path: '当前路径',
+        concurrency_label: '最大并发下载任务',
+        concurrency_help: '范围 1–8，默认 1。提高并发可能触发 Telegram 限流并加重磁盘负载；暂停中的任务仍占用并发名额。',
         browse_dir: '选择目录',
         save: '保存',
         sources_title: '资源来源',
@@ -2782,6 +2931,8 @@ INDEX_HTML = r"""<!doctype html>
         log_desc: 'Logs for the selected job or the forwarder.',
         paths_title: 'Download directory',
         current_path: 'Current path',
+        concurrency_label: 'Max concurrent download jobs',
+        concurrency_help: 'Range 1–8, default 1. Higher values may trigger Telegram rate limits and increase disk load; paused jobs still count toward the limit.',
         browse_dir: 'Browse',
         save: 'Save',
         sources_title: 'Sources',
@@ -3027,7 +3178,12 @@ INDEX_HTML = r"""<!doctype html>
       if (location.hash !== `#${next}`) { history.replaceState(null, '', `#${next}`); }
     }
     async function loadMe() { const data = await api('/api/auth/me'); csrfToken = data.csrf_token || ''; document.getElementById('userLabel').textContent = data.username; }
-    async function loadConfig() { const data = await api('/api/config'); document.getElementById('downloadDir').value = data.download_dir || ''; }
+    async function loadConfig() {
+      const data = await api('/api/config');
+      document.getElementById('downloadDir').value = data.download_dir || '';
+      const maxJobs = Number(data.max_concurrent_jobs);
+      document.getElementById('maxConcurrentJobs').value = Number.isFinite(maxJobs) && maxJobs >= 1 ? maxJobs : 1;
+    }
     function applyTelegramConfig(data, { resetHash = true } = {}) {
       if (!data) return;
       document.getElementById('telegramApiId').value = data.api_id || '';
@@ -3117,7 +3273,17 @@ INDEX_HTML = r"""<!doctype html>
     }
     async function saveConfig() {
       const el = document.getElementById('configMessage'); el.className = 'message';
-      try { await api('/api/config', {method:'PUT', body:JSON.stringify({download_dir:document.getElementById('downloadDir').value})}); el.textContent = t('saved'); }
+      try {
+        const data = await api('/api/config', {method:'PUT', body:JSON.stringify({
+          download_dir: document.getElementById('downloadDir').value,
+          max_concurrent_jobs: Number(document.getElementById('maxConcurrentJobs').value)
+        })});
+        const maxJobs = Number(data.max_concurrent_jobs);
+        if (Number.isFinite(maxJobs) && maxJobs >= 1) {
+          document.getElementById('maxConcurrentJobs').value = maxJobs;
+        }
+        el.textContent = t('saved');
+      }
       catch (err) { el.className = 'message error'; el.textContent = err.message; }
     }
     async function saveTelegramConfig() {
@@ -3458,8 +3624,9 @@ SETUP_HTML = r"""<!doctype html>
     .message { min-height:20px; margin-top:12px; font-size:13px; color:var(--muted); }
     .message.error { color:var(--bad); }
 
-    .lang-switch { position:fixed; top:16px; right:16px; display:inline-flex; gap:4px; z-index:5; }
-    .lang-btn { min-height:32px; padding:0 12px; font-size:12px; font-weight:700; border-radius:999px; background:rgba(255,253,248,.94); color:#202927; border:1px solid #c7beae; cursor:pointer; }
+    .lang-switch { position:fixed; top:16px; right:16px; display:inline-flex; gap:6px; align-items:center; z-index:20; }
+    .lang-btn { width:auto; min-width:52px; min-height:32px; margin:0; padding:0 12px; font-size:12px; font-weight:700; line-height:1; border-radius:999px; background:rgba(255,253,248,.96); color:#202927; border:1px solid #c7beae; box-shadow:0 6px 18px rgba(16,24,32,.08); cursor:pointer; white-space:nowrap; flex:0 0 auto; }
+    .lang-btn:hover { border-color:#2b6f66; background:#fff; }
     .lang-btn.active { background:#2b6f66; color:#fff; border-color:#2b6f66; }
     @media (max-width:760px) { .auth-shell, .setup-grid { grid-template-columns:1fr; } .full { grid-column:auto; } }
   </style>
@@ -3923,8 +4090,9 @@ LOGIN_HTML = r"""<!doctype html>
     button:active { transform:translateY(1px); }
     .error { min-height:20px; margin-top:12px; color:var(--bad); font-size:13px; }
 
-    .lang-switch { position:fixed; top:16px; right:16px; display:inline-flex; gap:4px; z-index:5; }
-    .lang-btn { min-height:32px; padding:0 12px; font-size:12px; font-weight:700; border-radius:999px; background:rgba(255,253,248,.94); color:#202927; border:1px solid #c7beae; cursor:pointer; }
+    .lang-switch { position:fixed; top:16px; right:16px; display:inline-flex; gap:6px; align-items:center; z-index:20; }
+    .lang-btn { width:auto; min-width:52px; min-height:32px; margin:0; padding:0 12px; font-size:12px; font-weight:700; line-height:1; border-radius:999px; background:rgba(255,253,248,.96); color:#202927; border:1px solid #c7beae; box-shadow:0 6px 18px rgba(16,24,32,.08); cursor:pointer; white-space:nowrap; flex:0 0 auto; }
+    .lang-btn:hover { border-color:#2b6f66; background:#fff; }
     .lang-btn.active { background:#2b6f66; color:#fff; border-color:#2b6f66; }
     @media (max-width:760px) { .auth-shell { grid-template-columns:1fr; } }
   </style>
@@ -4928,7 +5096,12 @@ class RequestHandler(BaseHTTPRequestHandler):
                 }
             )
         if parsed.path == "/api/config":
-            return self.send_json({"download_dir": str(self.config_store.get_download_dir())})
+            return self.send_json(
+                {
+                    "download_dir": str(self.config_store.get_download_dir()),
+                    "max_concurrent_jobs": self.config_store.get_max_concurrent_jobs(),
+                }
+            )
         if parsed.path == "/api/telegram/config":
             return self.send_json(
                 public_telegram_config(self.config_store.get_telegram_config())
@@ -5265,7 +5438,21 @@ class RequestHandler(BaseHTTPRequestHandler):
                 download_dir = self.config_store.set_download_dir(
                     str(payload.get("download_dir") or "")
                 )
-                return self.send_json({"download_dir": str(download_dir)})
+                if "max_concurrent_jobs" in payload:
+                    max_jobs = self.config_store.set_max_concurrent_jobs(
+                        payload.get("max_concurrent_jobs")
+                    )
+                else:
+                    max_jobs = self.config_store.get_max_concurrent_jobs()
+                pool = getattr(self.server, "worker_pool", None)
+                if pool is not None:
+                    pool.resize(max_jobs)
+                return self.send_json(
+                    {
+                        "download_dir": str(download_dir),
+                        "max_concurrent_jobs": max_jobs,
+                    }
+                )
             except Exception as exc:  # noqa: BLE001 - API boundary
                 return self.send_error_text(HTTPStatus.BAD_REQUEST, str(exc))
         if parsed.path == "/api/telegram/config":
@@ -5460,12 +5647,14 @@ class DownloadServer(ThreadingHTTPServer):
         config_store: ConfigStore,
         auth_manager: AuthManager,
         cookie_secure: bool = COOKIE_SECURE,
+        worker_pool: DownloadWorkerPool | None = None,
     ):
         super().__init__(address, handler)
         self.store = store
         self.config_store = config_store
         self.auth_manager = auth_manager
         self.cookie_secure = cookie_secure
+        self.worker_pool = worker_pool
 
 
 def run_server(host: str = DEFAULT_HOST, port: int = DEFAULT_PORT) -> None:
@@ -5475,8 +5664,12 @@ def run_server(host: str = DEFAULT_HOST, port: int = DEFAULT_PORT) -> None:
     store.init()
     auth_manager = AuthManager(config_store)
     stop_event = threading.Event()
-    worker = DownloadWorker(store, stop_event)
-    worker.start()
+    worker_pool = DownloadWorkerPool(
+        store,
+        stop_event,
+        size=config_store.get_max_concurrent_jobs(),
+    )
+    worker_pool.start()
 
     httpd = DownloadServer(
         (host, port),
@@ -5484,6 +5677,7 @@ def run_server(host: str = DEFAULT_HOST, port: int = DEFAULT_PORT) -> None:
         store,
         config_store,
         auth_manager,
+        worker_pool=worker_pool,
     )
 
     def stop(signum: int, frame: Any) -> None:  # noqa: ARG001
@@ -5499,7 +5693,7 @@ def run_server(host: str = DEFAULT_HOST, port: int = DEFAULT_PORT) -> None:
     finally:
         stop_event.set()
         httpd.server_close()
-        worker.join(timeout=6.0)
+        worker_pool.join(timeout=6.0)
 
 
 def main(argv: list[str] | None = None) -> int:

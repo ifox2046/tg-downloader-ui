@@ -697,6 +697,98 @@ class ConfigAuthTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 config.set_download_dir(Path("relative/path"))
 
+    def test_normalize_max_concurrent_jobs(self):
+        self.assertEqual(app.normalize_max_concurrent_jobs(1), 1)
+        self.assertEqual(app.normalize_max_concurrent_jobs("3"), 3)
+        self.assertEqual(app.normalize_max_concurrent_jobs(8), 8)
+        for bad in [0, -1, 9, "0", "abc", 1.5, True, None, ""]:
+            with self.assertRaises(ValueError):
+                app.normalize_max_concurrent_jobs(bad)
+
+    def test_max_concurrent_jobs_default_and_env_and_persist(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            config = app.ConfigStore(
+                root / "state",
+                default_download_dir=root / "downloads",
+                default_user="admin",
+                default_password="test-password",
+            )
+            config.init()
+            self.assertEqual(config.get_max_concurrent_jobs(), 1)
+
+            with mock.patch.dict(os.environ, {"TGDL_MAX_CONCURRENT_JOBS": "4"}):
+                self.assertEqual(config.get_max_concurrent_jobs(), 4)
+
+            self.assertEqual(config.set_max_concurrent_jobs(2), 2)
+            with mock.patch.dict(os.environ, {"TGDL_MAX_CONCURRENT_JOBS": "7"}):
+                # config.json wins once the key is saved
+                self.assertEqual(config.get_max_concurrent_jobs(), 2)
+
+            reloaded = app.ConfigStore(
+                root / "state",
+                default_download_dir=root / "downloads",
+                default_user="admin",
+                default_password="test-password",
+            )
+            reloaded.init()
+            self.assertEqual(reloaded.get_max_concurrent_jobs(), 2)
+
+            with self.assertRaises(ValueError):
+                config.set_max_concurrent_jobs(0)
+            with self.assertRaises(ValueError):
+                config.set_max_concurrent_jobs(9)
+
+    def test_claim_next_respects_max_concurrent_jobs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            config = app.ConfigStore(
+                root / "state",
+                default_download_dir=root / "downloads",
+                default_user="admin",
+                default_password="test-password",
+            )
+            config.init()
+            config.set_max_concurrent_jobs(1)
+            store = JobStore(root / "state", config)
+            store.init()
+
+            first = store.create_job(1001)
+            second = store.create_job(1002)
+            claimed = store.claim_next()
+            self.assertIsNotNone(claimed)
+            self.assertEqual(int(claimed["id"]), int(first["id"]))
+            self.assertIn(claimed["status"], {"exporting", "downloading"})
+
+            # At capacity: second stays queued
+            self.assertIsNone(store.claim_next())
+            queued = store.get_job(int(second["id"]))
+            self.assertEqual(queued["status"], "queued")
+
+            # Paused still counts as active (does not free a slot)
+            store.update_job(int(first["id"]), status="paused")
+            self.assertIsNone(store.claim_next())
+
+            store.finish_job(int(first["id"]), "done")
+            claimed2 = store.claim_next()
+            self.assertIsNotNone(claimed2)
+            self.assertEqual(int(claimed2["id"]), int(second["id"]))
+
+            # With N=2, two jobs can be active
+            config.set_max_concurrent_jobs(2)
+            third = store.create_job(1003)
+            fourth = store.create_job(1004)
+            # second is still active; claim third
+            claimed3 = store.claim_next()
+            self.assertIsNotNone(claimed3)
+            self.assertEqual(int(claimed3["id"]), int(third["id"]))
+            # at capacity again
+            self.assertIsNone(store.claim_next())
+            store.finish_job(int(second["id"]), "done")
+            claimed4 = store.claim_next()
+            self.assertIsNotNone(claimed4)
+            self.assertEqual(int(claimed4["id"]), int(fourth["id"]))
+
 
 class IndexTemplateTests(unittest.TestCase):
     def test_setup_form_does_not_collect_setup_token(self):
@@ -917,8 +1009,24 @@ class IndexTemplateTests(unittest.TestCase):
             "col_mode: '模式'",
             "let body = {mode}",
             "body.urls = document.getElementById('urlList').value",
+            'id="maxConcurrentJobs"',
+            "concurrency_label:",
+            "concurrency_help:",
+            "max_concurrent_jobs",
+            "submit-fields",
+            "mode-url",
         ]:
             self.assertIn(marker, html)
+
+        self.assertNotIn("grid-column:2 / 4", html)
+
+    def test_login_lang_switch_styles_are_self_contained(self):
+        for html in (app.LOGIN_HTML, app.SETUP_HTML):
+            self.assertIn("white-space:nowrap", html)
+            self.assertIn("width:auto", html)
+            self.assertIn('data-lang="zh"', html)
+            self.assertIn('data-lang="en"', html)
+            self.assertIn("z-index:20", html)
 
     def test_index_has_client_side_i18n_language_switch(self):
         html = app.INDEX_HTML
@@ -1586,6 +1694,59 @@ class AuthHttpTests(unittest.TestCase):
                 self.assertEqual(headers["X-Frame-Options"], "DENY")
                 self.assertEqual(headers["X-Content-Type-Options"], "nosniff")
                 self.assertEqual(headers["Referrer-Policy"], "no-referrer")
+
+    def test_config_api_get_put_max_concurrent_jobs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with self.running_server(root) as (port, config):
+                headers = self.login_headers(port)
+                status, _, payload = self.request(
+                    port, "GET", "/api/config", headers=headers
+                )
+                self.assertEqual(status, 200)
+                data = json.loads(payload)
+                self.assertEqual(data["max_concurrent_jobs"], 1)
+                self.assertIn("download_dir", data)
+
+                status, _, payload = self.request(
+                    port,
+                    "PUT",
+                    "/api/config",
+                    {
+                        "download_dir": str(config.get_download_dir()),
+                        "max_concurrent_jobs": 3,
+                    },
+                    headers=headers,
+                )
+                self.assertEqual(status, 200)
+                data = json.loads(payload)
+                self.assertEqual(data["max_concurrent_jobs"], 3)
+                self.assertEqual(config.get_max_concurrent_jobs(), 3)
+
+                status, _, payload = self.request(
+                    port,
+                    "PUT",
+                    "/api/config",
+                    {
+                        "download_dir": str(config.get_download_dir()),
+                        "max_concurrent_jobs": 0,
+                    },
+                    headers=headers,
+                )
+                self.assertEqual(status, 400)
+                self.assertIn("max_concurrent_jobs", payload)
+
+                status, _, payload = self.request(
+                    port,
+                    "PUT",
+                    "/api/config",
+                    {
+                        "download_dir": str(config.get_download_dir()),
+                        "max_concurrent_jobs": 99,
+                    },
+                    headers=headers,
+                )
+                self.assertEqual(status, 400)
 
     def test_secure_cookie_can_be_enabled_per_server(self):
         with tempfile.TemporaryDirectory() as tmp:
