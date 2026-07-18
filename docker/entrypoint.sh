@@ -10,8 +10,8 @@ forwarder_enabled() {
 }
 
 if [ "$(id -u)" = "0" ]; then
-  mkdir -p /config /downloads /tdl
-  chmod 700 /config /downloads /tdl
+  mkdir -p /config /downloads /tdl /config/tdl-workers
+  chmod 700 /config /downloads /tdl /config/tdl-workers
   chown -R tgdl:tgdl /config /tdl
   chown tgdl:tgdl /downloads
   exec setpriv --reuid=tgdl --regid=tgdl --init-groups "$0" "$@"

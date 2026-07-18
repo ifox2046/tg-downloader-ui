@@ -729,8 +729,15 @@ def prepare_worker_tdl_storage(worker_id: int, storage: str | None = None) -> st
     # Prefer STATE_DIR so Docker volume ownership of /tdl cannot block clones.
     worker_root = STATE_DIR / "tdl-workers" / f"w{max(0, int(worker_id))}"
     with _TDL_STORAGE_CLONE_LOCK:
-        worker_root.mkdir(parents=True, exist_ok=True)
         ensure_private_dir(worker_root)
+        with contextlib.suppress(OSError):
+            worker_root.chmod(0o700)
+        if not os.access(worker_root, os.W_OK):
+            # Drop root-owned leftovers from prior privileged docker execs, then recreate.
+            shutil.rmtree(worker_root, ignore_errors=True)
+            ensure_private_dir(worker_root)
+            with contextlib.suppress(OSError):
+                worker_root.chmod(0o700)
         if not os.access(worker_root, os.W_OK):
             raise PermissionError(f"worker tdl storage not writable: {worker_root}")
 
@@ -740,7 +747,8 @@ def prepare_worker_tdl_storage(worker_id: int, storage: str | None = None) -> st
             try:
                 if dest.exists() and not os.access(dest, os.W_OK):
                     dest.unlink(missing_ok=True)
-                shutil.copy2(src, dest)
+                # Write as the runtime user instead of preserving source ownership.
+                dest.write_bytes(src.read_bytes())
                 ensure_private_file(dest)
             except OSError:
                 # Primary may be locked mid-write; keep existing clone if usable.
