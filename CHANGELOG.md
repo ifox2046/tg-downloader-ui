@@ -2,7 +2,9 @@
 
 ## Unreleased
 
-- Support three download job modes: message ID (existing), Telegram URL (`tdl download -u`), and export JSON (`tdl download -f`) with upload/whitelist path under `exports/`.
+- Support three download job modes: message ID (existing), Telegram URL (export-first: parse link → `chat export` → `download -f`), and export JSON (`tdl download -f`) with upload/whitelist path under `exports/`.
+- URL mode resolves title/filename via export metadata (same Movies/TV rename path as message ID); multi-URL jobs process each link sequentially.
+- Move forwarder filters UI to a dedicated sidebar page (`转发过滤` / Forwarder Filters); Telegram auth page no longer hosts the filters block.
 - Install `python-socks` and `PySocks` with the Python package/Docker image so Telethon SOCKS proxies work.
 - Document the recommended bot → private channel → message-ID download workflow in README (EN/ZH).
 - Add Web UI Chinese/English language switch (`localStorage` + browser language default).

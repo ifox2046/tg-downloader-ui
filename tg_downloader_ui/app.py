@@ -517,6 +517,29 @@ def is_telegram_url(text: str) -> bool:
     return parts[-1].split("?")[0].isdigit()
 
 
+def parse_telegram_message_url(text: str) -> tuple[str, int]:
+    """Return (chat, message_id) for tdl chat export -c.
+
+    - https://t.me/username/193 -> ("username", 193)
+    - https://t.me/c/1697797156/151 -> ("-1001697797156", 151)
+    - topic forms use last path segment as message id
+    """
+    if not is_telegram_url(text):
+        raise ValueError(f"invalid telegram url: {text}")
+    parsed = urllib.parse.urlparse(str(text).strip())
+    path = (parsed.path or "").strip("/")
+    parts = [part for part in path.split("/") if part]
+    message_token = parts[-1].split("?")[0]
+    if not message_token.isdigit():
+        raise ValueError(f"invalid telegram url: {text}")
+    message_id = int(message_token)
+    if parts[0] == "c":
+        if len(parts) < 3 or not parts[1].isdigit():
+            raise ValueError(f"invalid telegram url: {text}")
+        return f"-100{parts[1]}", message_id
+    return parts[0], message_id
+
+
 def parse_urls(raw: Any) -> list[str]:
     if isinstance(raw, list):
         tokens = raw
@@ -1415,8 +1438,8 @@ class JobStore:
                 return None
             mode = str(row["mode"] if "mode" in row.keys() else "message_id")
             mode = (mode or "message_id").strip() or "message_id"
-            # URL/export skip chat export; avoid flashing "exporting" in the UI.
-            claimed_status = "exporting" if mode == "message_id" else "downloading"
+            # Export mode downloads from existing JSON only; message_id/url export first.
+            claimed_status = "downloading" if mode == "export" else "exporting"
             db.execute(
                 """
                 UPDATE jobs
@@ -1656,6 +1679,31 @@ class DownloadWorker(threading.Thread):
 
         action = "Resume" if resume_requested else "Start"
         self.store.append_log(job_id, f"{action} message {message_id} from {source_label}\n")
+        self.process_chat_message_download(
+            job,
+            message_id=message_id,
+            source_chat=source_chat,
+            source_label=source_label,
+            export_path=export_path,
+            resume_requested=resume_requested,
+        )
+
+    def process_chat_message_download(
+        self,
+        job: dict[str, Any],
+        *,
+        message_id: int,
+        source_chat: str,
+        source_label: str,
+        export_path: Path,
+        resume_requested: bool = False,
+        finish: bool = True,
+        update_title: bool = True,
+    ) -> str:
+        job_id = int(job["id"])
+        download_dir = Path(job.get("download_dir") or self.store.config_store.get_download_dir())
+        download_dir.mkdir(parents=True, exist_ok=True)
+
         if not resume_requested:
             self.check_canceled(job_id)
             export_cmd = build_tdl_base_args() + [
@@ -1685,26 +1733,36 @@ class DownloadWorker(threading.Thread):
         source_name = sanitize_filename(metadata.source_file, fallback=f"message_{message_id}")
         default_path = download_dir / f"{metadata.dialog_id}_{metadata.message_id}_{source_name}"
 
-        self.store.update_job(
-            job_id,
-            title=metadata.title,
-            source_file=metadata.source_file,
-            final_filename=final_filename,
-            final_path=str(final_path),
-        )
+        job_updates: dict[str, Any] = {
+            "source_file": metadata.source_file,
+            "final_filename": final_filename,
+            "final_path": str(final_path),
+        }
+        if update_title:
+            job_updates["title"] = metadata.title
+        self.store.update_job(job_id, **job_updates)
 
         if final_path.exists() and final_path.stat().st_size > 0:
             self.store.append_log(job_id, f"Already exists: {final_path}\n")
             write_sidecar_metadata(media_plan, metadata, source_label)
             self.cleanup_partial_files(job_id, metadata, default_path)
-            self.store.finish_job(
-                job_id,
-                "skipped",
-                progress=100,
-                downloaded=self.format_size(final_path.stat().st_size),
-                resume_requested=0,
-            )
-            return
+            if finish:
+                self.store.finish_job(
+                    job_id,
+                    "skipped",
+                    progress=100,
+                    downloaded=self.format_size(final_path.stat().st_size),
+                    resume_requested=0,
+                )
+            else:
+                self.store.update_job(
+                    job_id,
+                    progress=100,
+                    downloaded=self.format_size(final_path.stat().st_size),
+                    final_filename=final_path.name,
+                    final_path=str(final_path),
+                )
+            return "skipped"
 
         if default_path.exists():
             rename_path = final_path
@@ -1720,16 +1778,25 @@ class DownloadWorker(threading.Thread):
                 final_path=rename_path,
             )
             write_sidecar_metadata(media_plan, metadata, source_label)
-            self.store.finish_job(
-                job_id,
-                "done",
-                progress=100,
-                downloaded=self.format_size(rename_path.stat().st_size),
-                final_filename=rename_path.name,
-                final_path=str(rename_path),
-                resume_requested=0,
-            )
-            return
+            if finish:
+                self.store.finish_job(
+                    job_id,
+                    "done",
+                    progress=100,
+                    downloaded=self.format_size(rename_path.stat().st_size),
+                    final_filename=rename_path.name,
+                    final_path=str(rename_path),
+                    resume_requested=0,
+                )
+            else:
+                self.store.update_job(
+                    job_id,
+                    progress=100,
+                    downloaded=self.format_size(rename_path.stat().st_size),
+                    final_filename=rename_path.name,
+                    final_path=str(rename_path),
+                )
+            return "done"
 
         download_cmd = self.build_download_command(
             download_dir=download_dir,
@@ -1762,16 +1829,26 @@ class DownloadWorker(threading.Thread):
             final_path=final_path,
         )
         write_sidecar_metadata(media_plan, metadata, source_label)
-        self.store.finish_job(
-            job_id,
-            "done",
-            progress=100,
-            downloaded=self.format_size(final_path.stat().st_size),
-            final_filename=final_path.name,
-            final_path=str(final_path),
-            eta="",
-            resume_requested=0,
-        )
+        if finish:
+            self.store.finish_job(
+                job_id,
+                "done",
+                progress=100,
+                downloaded=self.format_size(final_path.stat().st_size),
+                final_filename=final_path.name,
+                final_path=str(final_path),
+                eta="",
+                resume_requested=0,
+            )
+        else:
+            self.store.update_job(
+                job_id,
+                progress=100,
+                downloaded=self.format_size(final_path.stat().st_size),
+                final_filename=final_path.name,
+                final_path=str(final_path),
+            )
+        return "done"
 
     def process_url_job(self, job: dict[str, Any]) -> None:
         job_id = int(job["id"])
@@ -1782,7 +1859,21 @@ class DownloadWorker(threading.Thread):
         urls = [str(item).strip() for item in (payload.get("urls") or []) if str(item).strip()]
         if not urls:
             raise ValueError("url job has no urls")
-        resume_requested = bool(int(job.get("resume_requested") or 0))
+
+        parsed_targets: list[tuple[str, str, int]] = []
+        for url in urls:
+            try:
+                source_chat, message_id = parse_telegram_message_url(url)
+            except ValueError as exc:
+                raise ValueError(f"cannot parse telegram message url: {url} ({exc})") from exc
+            parsed_targets.append((url, source_chat, message_id))
+
+        job_export_path = Path(job["export_path"])
+        resume_requested = bool(
+            int(job.get("resume_requested") or 0)
+            and len(parsed_targets) == 1
+            and job_export_path.exists()
+        )
         if not resume_requested:
             log_path.write_text("", encoding="utf-8")
             ensure_private_file(log_path)
@@ -1793,25 +1884,61 @@ class DownloadWorker(threading.Thread):
         self.store.append_log(job_id, f"{action} url job ({len(urls)} url(s))\n")
         self.check_canceled(job_id)
 
-        download_cmd = self.build_download_command(
-            download_dir=download_dir,
-            urls=urls,
-            resume=resume_requested,
-        )
-        self.store.update_job(job_id, status="downloading")
-        download_code = self.run_command(job_id, download_cmd, status="downloading")
-        if download_code == CANCEL_EXIT_CODE:
-            raise JobCanceled("canceled by user")
-        if download_code != 0:
-            raise RuntimeError(f"tdl download failed with exit code {download_code}")
-        self.check_canceled(job_id)
+        if len(parsed_targets) == 1:
+            url, source_chat, message_id = parsed_targets[0]
+            self.store.append_log(
+                job_id,
+                f"Export-first for {url} (chat={source_chat}, id={message_id})\n",
+            )
+            self.process_chat_message_download(
+                job,
+                message_id=message_id,
+                source_chat=source_chat,
+                source_label=url,
+                export_path=job_export_path,
+                resume_requested=resume_requested,
+            )
+            return
+
+        last_status = "done"
+        last_final_path = str(download_dir)
+        last_final_filename = ""
+        last_downloaded = ""
+        title_set = False
+        for index, (url, source_chat, message_id) in enumerate(parsed_targets):
+            self.check_canceled(job_id)
+            export_path = self.store.exports_dir / f"{job_id}_{index}.json"
+            self.store.append_log(
+                job_id,
+                f"URL [{index + 1}/{len(parsed_targets)}]: {url} "
+                f"(chat={source_chat}, id={message_id})\n",
+            )
+            status = self.process_chat_message_download(
+                job,
+                message_id=message_id,
+                source_chat=source_chat,
+                source_label=url,
+                export_path=export_path,
+                resume_requested=False,
+                finish=False,
+                update_title=not title_set,
+            )
+            title_set = True
+            last_status = status
+            current = self.store.get_job(job_id) or {}
+            last_final_path = str(current.get("final_path") or last_final_path)
+            last_final_filename = str(current.get("final_filename") or last_final_filename)
+            last_downloaded = str(current.get("downloaded") or last_downloaded)
+
         self.store.finish_job(
             job_id,
-            "done",
+            last_status if last_status in {"done", "skipped"} else "done",
             progress=100,
+            downloaded=last_downloaded,
+            final_filename=last_final_filename,
+            final_path=last_final_path,
             eta="",
             resume_requested=0,
-            final_path=str(download_dir),
         )
 
     def process_export_job(self, job: dict[str, Any]) -> None:
@@ -2243,6 +2370,7 @@ INDEX_HTML = r"""<!doctype html>
         <button class="nav-item" data-page="paths" type="button" data-i18n="nav_paths">路径设置</button>
         <button class="nav-item" data-page="sources" type="button" data-i18n="nav_sources">资源来源</button>
         <button class="nav-item" data-page="telegram" type="button" data-i18n="nav_telegram">Telegram 授权</button>
+        <button class="nav-item" data-page="filters" type="button" data-i18n="nav_filters">转发过滤</button>
         <button class="nav-item" data-page="password" type="button" data-i18n="nav_password">密码管理</button>
       </nav>
       <div class="sidebar-footer"><button class="secondary" id="logoutBtn" type="button" data-i18n="logout">退出登录</button></div>
@@ -2321,22 +2449,6 @@ INDEX_HTML = r"""<!doctype html>
             <div class="message" id="telegramConfigMessage"></div>
           </div>
           <div class="auth-block">
-            <h3 data-i18n="fwd_filters_title">转发过滤</h3>
-            <p class="auth-note" data-i18n="fwd_filters_note">控制转发器监听哪些媒体类型、是否要求文案，以及体积/关键词过滤。保存后会自动重启 forwarder。</p>
-            <div class="telegram-grid">
-              <label class="check-row"><input id="filterMediaVideo" type="checkbox"> <span data-i18n="fwd_filter_video">视频</span></label>
-              <label class="check-row"><input id="filterMediaPhoto" type="checkbox"> <span data-i18n="fwd_filter_photo">图片</span></label>
-              <label class="check-row"><input id="filterMediaDocument" type="checkbox"> <span data-i18n="fwd_filter_document">非视频文档</span></label>
-              <label class="check-row"><input id="filterRequireText" type="checkbox"> <span data-i18n="fwd_filter_require_text">要求文案/字幕</span></label>
-              <div><label for="filterMinSizeMib" data-i18n="fwd_filter_min_mib">最小体积 (MiB，0=不限)</label><input id="filterMinSizeMib" inputmode="decimal" value="0"></div>
-              <div><label for="filterMaxSizeMib" data-i18n="fwd_filter_max_mib">最大体积 (MiB，0=不限)</label><input id="filterMaxSizeMib" inputmode="decimal" value="0"></div>
-              <div><label for="filterIncludeKeywords" data-i18n="fwd_filter_include">包含关键词（逗号/换行，空=不限）</label><textarea id="filterIncludeKeywords" rows="2"></textarea></div>
-              <div><label for="filterExcludeKeywords" data-i18n="fwd_filter_exclude">排除关键词（逗号/换行）</label><textarea id="filterExcludeKeywords" rows="2"></textarea></div>
-            </div>
-            <div class="telegram-actions"><button id="saveForwarderFiltersBtn" type="button" data-i18n="fwd_filters_save">保存过滤并重启</button></div>
-            <div class="message" id="forwarderFiltersMessage"></div>
-          </div>
-          <div class="auth-block">
             <h3 data-i18n="code_login">验证码登录</h3>
             <div class="telegram-grid">
               <div><label for="telegramPhone" data-i18n="phone">手机号</label><input id="telegramPhone" placeholder="+8613..."></div>
@@ -2377,6 +2489,25 @@ INDEX_HTML = r"""<!doctype html>
           </div>
         </section>
         </div>
+      </section>
+
+      <section class="page" id="page-filters">
+        <section class="band">
+          <h2 data-i18n="fwd_filters_title">转发过滤</h2>
+          <p class="auth-note" data-i18n="fwd_filters_note">控制转发器监听哪些媒体类型、是否要求文案，以及体积/关键词过滤。保存后会自动重启 forwarder。</p>
+          <div class="telegram-grid">
+            <label class="check-row"><input id="filterMediaVideo" type="checkbox"> <span data-i18n="fwd_filter_video">视频</span></label>
+            <label class="check-row"><input id="filterMediaPhoto" type="checkbox"> <span data-i18n="fwd_filter_photo">图片</span></label>
+            <label class="check-row"><input id="filterMediaDocument" type="checkbox"> <span data-i18n="fwd_filter_document">非视频文档</span></label>
+            <label class="check-row"><input id="filterRequireText" type="checkbox"> <span data-i18n="fwd_filter_require_text">要求文案/字幕</span></label>
+            <div><label for="filterMinSizeMib" data-i18n="fwd_filter_min_mib">最小体积 (MiB，0=不限)</label><input id="filterMinSizeMib" inputmode="decimal" value="0"></div>
+            <div><label for="filterMaxSizeMib" data-i18n="fwd_filter_max_mib">最大体积 (MiB，0=不限)</label><input id="filterMaxSizeMib" inputmode="decimal" value="0"></div>
+            <div><label for="filterIncludeKeywords" data-i18n="fwd_filter_include">包含关键词（逗号/换行，空=不限）</label><textarea id="filterIncludeKeywords" rows="2"></textarea></div>
+            <div><label for="filterExcludeKeywords" data-i18n="fwd_filter_exclude">排除关键词（逗号/换行）</label><textarea id="filterExcludeKeywords" rows="2"></textarea></div>
+          </div>
+          <div class="telegram-actions"><button id="saveForwarderFiltersBtn" type="button" data-i18n="fwd_filters_save">保存过滤并重启</button></div>
+          <div class="message" id="forwarderFiltersMessage"></div>
+        </section>
       </section>
 
       <section class="page" id="page-password">
@@ -2424,6 +2555,7 @@ INDEX_HTML = r"""<!doctype html>
         nav_paths: '路径设置',
         nav_sources: '资源来源',
         nav_telegram: 'Telegram 授权',
+        nav_filters: '转发过滤',
         nav_password: '密码管理',
         logout: '退出登录',
         eyebrow: '媒体归档工作台',
@@ -2444,7 +2576,7 @@ INDEX_HTML = r"""<!doctype html>
         submit_btn: '提交下载',
         activity_pill: '当前活动',
         queue_aside_title: '媒体下载队列',
-        queue_aside_desc: '消息 ID 模式会按媒体信息写入 Movies/TV；链接与导出模式使用 tdl 默认文件名。暂停后的任务可继续下载。',
+        queue_aside_desc: '消息 ID 与链接模式会先 export 再按媒体信息写入 Movies/TV；导出模式使用 tdl 默认文件名。暂停后的任务可继续下载。',
         forwarder_title: '转发监控',
         forwarder_desc: '监听来源、转发统计和 forwarder 状态。',
         jobs_title: '下载队列',
@@ -2608,6 +2740,7 @@ INDEX_HTML = r"""<!doctype html>
         nav_paths: 'Paths',
         nav_sources: 'Sources',
         nav_telegram: 'Telegram Auth',
+        nav_filters: 'Forwarder Filters',
         nav_password: 'Password',
         logout: 'Log out',
         eyebrow: 'Media archive workbench',
@@ -2626,9 +2759,9 @@ INDEX_HTML = r"""<!doctype html>
         export_path_placeholder: 'relative path under exports/',
         export_upload_label: 'Upload export JSON',
         submit_btn: 'Submit download',
-        activity_pill: 'Active now',
+        activity_pill: 'Live activity',
         queue_aside_title: 'Media download queue',
-        queue_aside_desc: 'Message ID mode writes Movies/TV layouts from metadata. URL and export modes keep tdl native filenames. Paused jobs can be resumed.',
+        queue_aside_desc: 'Message ID and URL modes export first, then write Movies/TV layouts from metadata. Export mode keeps tdl native filenames. Paused jobs can be resumed.',
         forwarder_title: 'Forwarder monitor',
         forwarder_desc: 'Watched sources, forward stats, and forwarder state.',
         jobs_title: 'Download queue',
@@ -2848,6 +2981,7 @@ INDEX_HTML = r"""<!doctype html>
         paths: t('nav_paths'),
         sources: t('nav_sources'),
         telegram: t('nav_telegram'),
+        filters: t('nav_filters'),
         password: t('nav_password')
       };
     }

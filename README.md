@@ -31,11 +31,13 @@ The Web UI download form supports three job input modes:
 | Mode | Input | `tdl` behavior | Output naming |
 | --- | --- | --- | --- |
 | Message ID | Source chat + message ID(s) | `chat export` by id, then `download -f` | Existing Movies/TV rename pipeline |
-| URL | One or more `https://t.me/...` links (max 50) | `download -u` (repeated) | Native `tdl` filenames under the download directory |
+| URL | One or more `https://t.me/...` links (max 50) | Parse link → `chat export` by id → `download -f` (export-first metadata) | Same Movies/TV rename pipeline when export metadata allows |
 | Export file | Upload and/or path under `TGDL_STATE_DIR/exports` (max 32 MiB upload) | `download -f` | Native `tdl` filenames under the download directory |
 
-URL mode does not use the source selector (the link embeds the chat). Export
-paths are restricted to the exports whitelist root; path traversal is rejected.
+URL mode does not use the source selector (the link embeds the chat). It resolves
+filename/title via export the same way message-ID mode does. Multi-URL jobs run
+export+download sequentially per link. Export paths are restricted to the
+exports whitelist root; path traversal is rejected.
 
 ## Language
 

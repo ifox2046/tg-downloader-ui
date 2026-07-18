@@ -22,10 +22,10 @@ Web UI 下载表单支持三种任务输入模式：
 | 模式 | 输入 | `tdl` 行为 | 落盘命名 |
 | --- | --- | --- | --- |
 | 消息 ID | 来源会话 + 消息 ID | 先按 ID `chat export`，再 `download -f` | 沿用现有 Movies/TV 重命名 |
-| 链接 URL | 一条或多条 `https://t.me/...`（最多 50） | `download -u`（可重复） | 使用 `tdl` 默认文件名，写入下载目录 |
+| 链接 URL | 一条或多条 `https://t.me/...`（最多 50） | 解析链接 → 按 ID `chat export` → `download -f`（export-first 元数据） | 与消息 ID 相同，有元数据时走 Movies/TV 重命名 |
 | 导出文件 | 上传和/或 `TGDL_STATE_DIR/exports` 下路径（上传最大 32 MiB） | `download -f` | 使用 `tdl` 默认文件名，写入下载目录 |
 
-链接模式不需要选择来源（URL 已包含会话信息）。导出路径仅允许 exports 白名单根目录，路径穿越会被拒绝。
+链接模式不需要选择来源（URL 已包含会话信息）；会像消息 ID 模式一样先 export 再解析文件名/标题。多链接任务按 URL 顺序依次 export+download。导出路径仅允许 exports 白名单根目录，路径穿越会被拒绝。
 
 ## 界面语言
 

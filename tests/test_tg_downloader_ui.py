@@ -125,6 +125,26 @@ class DownloadModeParsingTests(unittest.TestCase):
         self.assertEqual(len(urls), 3)
         self.assertTrue(all(item.startswith("https://") for item in urls))
 
+    def test_parse_telegram_message_url_public_private_and_topic(self):
+        self.assertEqual(
+            app.parse_telegram_message_url("https://t.me/username/193"),
+            ("username", 193),
+        )
+        self.assertEqual(
+            app.parse_telegram_message_url("https://t.me/c/1697797156/151"),
+            ("-1001697797156", 151),
+        )
+        self.assertEqual(
+            app.parse_telegram_message_url("https://t.me/c/1697797156/99/151"),
+            ("-1001697797156", 151),
+        )
+        self.assertEqual(
+            app.parse_telegram_message_url("https://telegram.me/channel/99"),
+            ("channel", 99),
+        )
+        with self.assertRaisesRegex(ValueError, "invalid telegram url"):
+            app.parse_telegram_message_url("https://example.com/x/1")
+
     def test_parse_urls_rejects_invalid_and_empty(self):
         with self.assertRaisesRegex(ValueError, "invalid telegram url"):
             app.parse_urls("https://example.com/x/1")
@@ -205,7 +225,7 @@ class DownloadModeParsingTests(unittest.TestCase):
             claimed_url = store.claim_next()
             self.assertIsNotNone(claimed_url)
             self.assertEqual(claimed_url["mode"], "url")
-            self.assertEqual(claimed_url["status"], "downloading")
+            self.assertEqual(claimed_url["status"], "exporting")
 
 
 class TelegramProxyParsingTests(unittest.TestCase):
@@ -694,12 +714,24 @@ class IndexTemplateTests(unittest.TestCase):
         self.assertIn('data-page="paths"', html)
         self.assertIn('data-page="sources"', html)
         self.assertIn('data-page="telegram"', html)
+        self.assertIn('data-page="filters"', html)
         self.assertIn('data-page="password"', html)
         self.assertIn('id="page-sources"', html)
         self.assertIn('id="sourceSelect"', html)
         self.assertIn('id="page-telegram"', html)
+        self.assertIn('id="page-filters"', html)
         self.assertIn('id="page-password"', html)
         self.assertIn('id="dirDialog"', html)
+        self.assertIn('id="saveForwarderFiltersBtn"', html)
+        self.assertIn("nav_filters", html)
+        # Filters form lives on its own page, not under Telegram auth.
+        telegram_start = html.index('id="page-telegram"')
+        filters_start = html.index('id="page-filters"')
+        password_start = html.index('id="page-password"')
+        self.assertLess(telegram_start, filters_start)
+        self.assertLess(filters_start, password_start)
+        self.assertNotIn('id="filterMediaVideo"', html[telegram_start:filters_start])
+        self.assertIn('id="filterMediaVideo"', html[filters_start:password_start])
 
     def test_forwarder_restart_button_is_rendered_only_when_configured(self):
         html = app.INDEX_HTML
@@ -723,6 +755,7 @@ class IndexTemplateTests(unittest.TestCase):
             "路径设置",
             "资源来源",
             "Telegram 授权",
+            "转发过滤",
             "密码管理",
             "退出登录",
             "提交下载",
@@ -2925,6 +2958,95 @@ class JobStoreInitTests(unittest.TestCase):
                 self.assertEqual(queued["status"], "queued")
         finally:
             app.DOWNLOAD_DIR = original_download_dir
+
+
+class UrlExportFirstWorkerTests(unittest.TestCase):
+    def test_url_job_exports_then_downloads_with_metadata_title(self):
+        class UrlExportWorker(DownloadWorker):
+            def __init__(self, store, stop_event, payload, download_dir):
+                super().__init__(store, stop_event)
+                self.payload = payload
+                self.download_dir = download_dir
+                self.export_command = []
+                self.download_command = []
+
+            def run_command(self, job_id, cmd, status):
+                if status == "exporting":
+                    self.export_command = cmd
+                    job = self.store.get_job(job_id)
+                    Path(job["export_path"]).write_text(
+                        json.dumps(self.payload, ensure_ascii=False), encoding="utf-8"
+                    )
+                    return 0
+                if status == "downloading":
+                    self.download_command = cmd
+                    default_path = self.download_dir / "7487350635_193_[source]正片.mp4"
+                    default_path.write_bytes(b"movie")
+                    return 0
+                return 0
+
+        original_download_dir = app.DOWNLOAD_DIR
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                app.DOWNLOAD_DIR = root / "downloads"
+                app.DOWNLOAD_DIR.mkdir()
+
+                store = JobStore(root / "state")
+                store.init()
+                queued = store.create_job(
+                    0,
+                    mode="url",
+                    input_payload={"urls": ["https://t.me/username/193"]},
+                    source_label="url",
+                )
+                job = store.claim_next()
+                self.assertEqual(job["status"], "exporting")
+                payload = {
+                    "id": 7487350635,
+                    "messages": [
+                        {
+                            "id": 193,
+                            "file": "[source]正片.mp4",
+                            "text": "片名：绵羊侦探团\n首映：2026-05-08(美国)",
+                        }
+                    ],
+                }
+                worker = UrlExportWorker(store, threading.Event(), payload, app.DOWNLOAD_DIR)
+                worker.process_job(job)
+
+                self.assertEqual(
+                    worker.export_command[worker.export_command.index("-c") + 1],
+                    "username",
+                )
+                self.assertEqual(
+                    worker.export_command[worker.export_command.index("-i") + 1],
+                    "193",
+                )
+                self.assertIn("-f", worker.download_command)
+                self.assertNotIn("-u", worker.download_command)
+                result = store.get_job(job["id"])
+                self.assertEqual(result["status"], "done")
+                self.assertEqual(result["title"], "绵羊侦探团")
+                self.assertIn("Movies", str(result["final_path"]))
+        finally:
+            app.DOWNLOAD_DIR = original_download_dir
+
+    def test_url_job_rejects_unparseable_url(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            store = JobStore(root / "state")
+            store.init()
+            queued = store.create_job(
+                0,
+                mode="url",
+                input_payload={"urls": ["https://example.com/not-telegram/1"]},
+                source_label="url",
+            )
+            job = store.claim_next()
+            worker = DownloadWorker(store, threading.Event())
+            with self.assertRaisesRegex(ValueError, "cannot parse telegram message url"):
+                worker.process_url_job(job)
 
 
 if __name__ == "__main__":
