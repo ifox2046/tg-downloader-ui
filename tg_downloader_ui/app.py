@@ -716,7 +716,8 @@ def prepare_worker_tdl_storage(worker_id: int, storage: str | None = None) -> st
     """Return a per-worker bolt storage path cloned from the primary login storage.
 
     Concurrent tdl processes cannot share one bolt DB. Login keeps using the
-    primary storage; each download worker clones it into an isolated directory.
+    primary storage; each download worker clones it into an isolated directory
+    under the app state dir (always writable by the runtime user).
     """
     options = parse_tdl_storage_options(storage)
     storage_type = str(options.get("type") or "bolt").strip().lower()
@@ -725,35 +726,36 @@ def prepare_worker_tdl_storage(worker_id: int, storage: str | None = None) -> st
         return format_tdl_storage_options(options) if options else str(storage or TDL_STORAGE)
 
     primary = Path(path_value)
-    worker_root = primary.parent / "workers" / f"w{max(0, int(worker_id))}"
+    # Prefer STATE_DIR so Docker volume ownership of /tdl cannot block clones.
+    worker_root = STATE_DIR / "tdl-workers" / f"w{max(0, int(worker_id))}"
     with _TDL_STORAGE_CLONE_LOCK:
         worker_root.mkdir(parents=True, exist_ok=True)
         ensure_private_dir(worker_root)
+        if not os.access(worker_root, os.W_OK):
+            raise PermissionError(f"worker tdl storage not writable: {worker_root}")
+
+        def _copy_file(src: Path, dest: Path) -> None:
+            if not src.exists() or not src.is_file():
+                return
+            try:
+                if dest.exists() and not os.access(dest, os.W_OK):
+                    dest.unlink(missing_ok=True)
+                shutil.copy2(src, dest)
+                ensure_private_file(dest)
+            except OSError:
+                # Primary may be locked mid-write; keep existing clone if usable.
+                if not dest.exists() or not os.access(dest, os.R_OK):
+                    raise
+
         if primary.is_dir():
             for item in primary.iterdir():
-                if not item.is_file():
-                    continue
-                target = worker_root / item.name
-                try:
-                    shutil.copy2(item, target)
-                    ensure_private_file(target)
-                except OSError:
-                    # If primary is mid-write, fall back to existing worker copy if present.
-                    if not target.exists():
-                        raise
+                if item.is_file():
+                    _copy_file(item, worker_root / item.name)
             options["path"] = str(worker_root)
         else:
-            # path points at a single bolt file
-            worker_root.mkdir(parents=True, exist_ok=True)
             target = worker_root / (primary.name or "default")
-            try:
-                if primary.exists():
-                    shutil.copy2(primary, target)
-                    ensure_private_file(target)
-            except OSError:
-                if not target.exists():
-                    raise
-            options["path"] = str(target)
+            _copy_file(primary, target)
+            options["path"] = str(target if target.exists() else worker_root)
     return format_tdl_storage_options(options)
 
 

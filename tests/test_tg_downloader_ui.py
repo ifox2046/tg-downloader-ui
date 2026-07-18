@@ -251,33 +251,40 @@ class TelegramProxyParsingTests(unittest.TestCase):
 class CommandConstructionTests(unittest.TestCase):
     def test_prepare_worker_tdl_storage_clones_bolt_dir_per_worker(self):
         with tempfile.TemporaryDirectory() as tmp:
+            state_dir = Path(tmp) / "state"
+            state_dir.mkdir()
             primary = Path(tmp) / "tdl" / "data"
             primary.mkdir(parents=True)
             (primary / "default").write_bytes(b"session-bytes")
             storage = f"type=bolt,path={primary}"
-            slot0 = app.prepare_worker_tdl_storage(0, storage)
-            slot1 = app.prepare_worker_tdl_storage(1, storage)
+            with mock.patch.object(app, "STATE_DIR", state_dir):
+                slot0 = app.prepare_worker_tdl_storage(0, storage)
+                slot1 = app.prepare_worker_tdl_storage(1, storage)
             self.assertIn("type=bolt", slot0)
             self.assertIn("type=bolt", slot1)
             path0 = Path(dict(item.split("=", 1) for item in slot0.split(","))["path"])
             path1 = Path(dict(item.split("=", 1) for item in slot1.split(","))["path"])
             self.assertNotEqual(path0, path1)
-            self.assertNotEqual(path0, primary)
+            self.assertTrue(str(path0).startswith(str(state_dir / "tdl-workers")))
             self.assertTrue((path0 / "default").exists())
             self.assertEqual((path0 / "default").read_bytes(), b"session-bytes")
             self.assertEqual((path1 / "default").read_bytes(), b"session-bytes")
 
     def test_prepare_worker_tdl_storage_clones_bolt_file_path(self):
         with tempfile.TemporaryDirectory() as tmp:
+            state_dir = Path(tmp) / "state"
+            state_dir.mkdir()
             primary = Path(tmp) / "tdl" / "data" / "default"
             primary.parent.mkdir(parents=True)
             primary.write_bytes(b"bolt-file")
             storage = f"type=bolt,path={primary}"
-            slot = app.prepare_worker_tdl_storage(2, storage)
+            with mock.patch.object(app, "STATE_DIR", state_dir):
+                slot = app.prepare_worker_tdl_storage(2, storage)
             options = dict(item.split("=", 1) for item in slot.split(","))
             cloned = Path(options["path"])
             self.assertTrue(cloned.is_file())
             self.assertEqual(cloned.read_bytes(), b"bolt-file")
+            self.assertTrue(str(cloned).startswith(str(state_dir / "tdl-workers")))
             self.assertNotEqual(cloned, primary)
 
     def test_tdl_base_args_uses_tdl_specific_proxy_before_global_proxy(self):
