@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Isolate concurrent download workers onto cloned tdl bolt storage slots so parallel jobs no longer fail with "database is used by another process".
 - Add configurable concurrent download jobs (`max_concurrent_jobs` in `config.json` / Web UI paths page, optional `TGDL_MAX_CONCURRENT_JOBS` when the key is missing). Default 1, max 8; worker pool resizes without full process restart. Paused jobs count toward the concurrency limit.
 - Fix download-page URL mode submit-band layout alignment; fix login/setup top-right language switch button sizing.
 - Support three download job modes: message ID (existing), Telegram URL (export-first: parse link → `chat export` → `download -f`), and export JSON (`tdl download -f`) with upload/whitelist path under `exports/`.

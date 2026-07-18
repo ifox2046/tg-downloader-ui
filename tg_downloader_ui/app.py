@@ -687,6 +687,76 @@ def load_configured_telegram_proxy(state_dir: Path | None = None) -> str:
     return str(telegram.get("proxy") or "").strip()
 
 
+def parse_tdl_storage_options(storage: str | None = None) -> dict[str, str]:
+    raw = str(storage if storage is not None else TDL_STORAGE).strip()
+    options: dict[str, str] = {}
+    for item in raw.split(","):
+        piece = item.strip()
+        if not piece or "=" not in piece:
+            continue
+        key, value = piece.split("=", 1)
+        options[key.strip()] = value.strip()
+    return options
+
+
+def format_tdl_storage_options(options: dict[str, str]) -> str:
+    # Keep type first for readability; preserve remaining keys in stable order.
+    items: list[str] = []
+    if "type" in options:
+        items.append(f"type={options['type']}")
+    for key in sorted(k for k in options if k != "type"):
+        items.append(f"{key}={options[key]}")
+    return ",".join(items) if items else str(TDL_STORAGE)
+
+
+_TDL_STORAGE_CLONE_LOCK = threading.Lock()
+
+
+def prepare_worker_tdl_storage(worker_id: int, storage: str | None = None) -> str:
+    """Return a per-worker bolt storage path cloned from the primary login storage.
+
+    Concurrent tdl processes cannot share one bolt DB. Login keeps using the
+    primary storage; each download worker clones it into an isolated directory.
+    """
+    options = parse_tdl_storage_options(storage)
+    storage_type = str(options.get("type") or "bolt").strip().lower()
+    path_value = str(options.get("path") or "").strip()
+    if storage_type != "bolt" or not path_value:
+        return format_tdl_storage_options(options) if options else str(storage or TDL_STORAGE)
+
+    primary = Path(path_value)
+    worker_root = primary.parent / "workers" / f"w{max(0, int(worker_id))}"
+    with _TDL_STORAGE_CLONE_LOCK:
+        worker_root.mkdir(parents=True, exist_ok=True)
+        ensure_private_dir(worker_root)
+        if primary.is_dir():
+            for item in primary.iterdir():
+                if not item.is_file():
+                    continue
+                target = worker_root / item.name
+                try:
+                    shutil.copy2(item, target)
+                    ensure_private_file(target)
+                except OSError:
+                    # If primary is mid-write, fall back to existing worker copy if present.
+                    if not target.exists():
+                        raise
+            options["path"] = str(worker_root)
+        else:
+            # path points at a single bolt file
+            worker_root.mkdir(parents=True, exist_ok=True)
+            target = worker_root / (primary.name or "default")
+            try:
+                if primary.exists():
+                    shutil.copy2(primary, target)
+                    ensure_private_file(target)
+            except OSError:
+                if not target.exists():
+                    raise
+            options["path"] = str(target)
+    return format_tdl_storage_options(options)
+
+
 def build_tdl_base_args(
     tdl_bin: str | None = None,
     storage: str | None = None,
@@ -1757,6 +1827,9 @@ class DownloadWorker(threading.Thread):
             resume_requested=resume_requested,
         )
 
+    def worker_tdl_storage(self) -> str:
+        return prepare_worker_tdl_storage(self.worker_id)
+
     def process_chat_message_download(
         self,
         job: dict[str, Any],
@@ -1772,10 +1845,11 @@ class DownloadWorker(threading.Thread):
         job_id = int(job["id"])
         download_dir = Path(job.get("download_dir") or self.store.config_store.get_download_dir())
         download_dir.mkdir(parents=True, exist_ok=True)
+        tdl_storage = self.worker_tdl_storage()
 
         if not resume_requested:
             self.check_canceled(job_id)
-            export_cmd = build_tdl_base_args() + [
+            export_cmd = build_tdl_base_args(storage=tdl_storage) + [
                 "chat",
                 "export",
                 "-c",
@@ -1871,6 +1945,7 @@ class DownloadWorker(threading.Thread):
             download_dir=download_dir,
             export_paths=[export_path],
             resume=resume_requested,
+            storage=tdl_storage,
         )
         self.store.update_job(job_id, status="downloading")
         download_code = self.run_command(job_id, download_cmd, status="downloading")
@@ -2067,8 +2142,10 @@ class DownloadWorker(threading.Thread):
         export_paths: list[Path] | None = None,
         urls: list[str] | None = None,
         resume: bool = False,
+        storage: str | None = None,
     ) -> list[str]:
-        cmd = build_tdl_base_args() + [
+        selected_storage = storage if storage is not None else self.worker_tdl_storage()
+        cmd = build_tdl_base_args(storage=selected_storage) + [
             "-t",
             "1",
             "-l",
