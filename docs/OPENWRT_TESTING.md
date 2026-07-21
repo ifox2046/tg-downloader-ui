@@ -47,7 +47,7 @@ target or use Docker/server deployment instead.
 
 ## 3. Install tdl (generic-package path)
 
-When testing the generic `tg-downloader-ui_0.1.0_all.ipk` package, install
+When testing the generic `tg-downloader-ui_0.1.3_all.ipk` package, install
 `tdl` separately from the upstream project:
 
 ```sh
@@ -82,22 +82,22 @@ For x86_64 iStoreOS/OpenWrt, the full package includes `tdl 0.20.3`; skip the se
 
 ```powershell
 $target = "$env:OPENWRT_TEST_USER@$env:OPENWRT_TEST_HOST"
-scp .\dist\openwrt\tg-downloader-ui-full_0.1.0_x86_64.ipk "${target}:/tmp/"
-ssh $target "opkg install /tmp/tg-downloader-ui-full_0.1.0_x86_64.ipk"
+scp .\dist\openwrt\tg-downloader-ui-full_0.1.3_x86_64.ipk "${target}:/tmp/"
+ssh $target "opkg install /tmp/tg-downloader-ui-full_0.1.3_x86_64.ipk"
 ```
 
 On aarch64 OpenWrt, build and install the separate arm64 full package instead:
 
 ```sh
 python scripts/build_openwrt_ipk.py --full-arch aarch64
-# artifact: dist/openwrt/tg-downloader-ui-full_0.1.0_aarch64_generic.ipk
+# artifact: dist/openwrt/tg-downloader-ui-full_0.1.3_aarch64_generic.ipk
 # Architecture: aarch64_generic ; tdl asset: tdl_Linux_arm64.tar.gz
 ```
 
 ```powershell
 $target = "$env:OPENWRT_TEST_USER@$env:OPENWRT_TEST_HOST"
-scp .\dist\openwrt\tg-downloader-ui-full_0.1.0_aarch64_generic.ipk "${target}:/tmp/"
-ssh $target "opkg install /tmp/tg-downloader-ui-full_0.1.0_aarch64_generic.ipk"
+scp .\dist\openwrt\tg-downloader-ui-full_0.1.3_aarch64_generic.ipk "${target}:/tmp/"
+ssh $target "opkg install /tmp/tg-downloader-ui-full_0.1.3_aarch64_generic.ipk"
 ```
 
 The full package still requires first-run administrator setup and Telegram authentication.
@@ -117,8 +117,8 @@ Generic-package path: upload and install the architecture-independent package
 
 ```powershell
 $target = "$env:OPENWRT_TEST_USER@$env:OPENWRT_TEST_HOST"
-scp .\dist\openwrt\tg-downloader-ui_0.1.0_all.ipk "${target}:/tmp/"
-ssh $target "opkg install /tmp/tg-downloader-ui_0.1.0_all.ipk"
+scp .\dist\openwrt\tg-downloader-ui_0.1.3_all.ipk "${target}:/tmp/"
+ssh $target "opkg install /tmp/tg-downloader-ui_0.1.3_all.ipk"
 ```
 
 Expected:

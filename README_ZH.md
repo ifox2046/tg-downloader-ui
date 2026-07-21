@@ -169,14 +169,14 @@ Docker 持久化路径：
 发布的 Docker 镜像为多架构（`linux/amd64` 与 `linux/arm64`），在 Docker Hub 上共用同一镜像名与标签：
 
 ```text
-ifox2046/tg-downloader-ui:0.1.2
+ifox2046/tg-downloader-ui:0.1.3
 ifox2046/tg-downloader-ui:latest
 ```
 
 各平台在构建时安装对应架构、经校验的上游未修改 `tdl 0.20.3` 二进制（amd64 为 `tdl_Linux_64bit.tar.gz`，arm64 为 `tdl_Linux_arm64.tar.gz`）。在 amd64 主机上本地 `docker compose build` / 普通 `docker build` 仍可直接使用，无需 Buildx。
 
 ```sh
-docker pull ifox2046/tg-downloader-ui:0.1.2
+docker pull ifox2046/tg-downloader-ui:0.1.3
 ```
 
 容器默认启动 Web UI 和可选转发器；设置 `TGDL_FORWARDER_ENABLED=0` 可关闭转发器。转发器重启按钮只会重启容器内的转发进程，不需要访问 Docker socket。
@@ -291,9 +291,9 @@ python scripts/build_openwrt_ipk.py
 
 默认构建会生成三个安装包：
 
-- `tg-downloader-ui_0.1.0_all.ipk`：与架构无关的应用包，需要另行安装与设备架构匹配的上游 `tdl`。
-- `tg-downloader-ui-full_0.1.0_x86_64.ipk`：x86_64 完整包，包含应用和未经修改的上游 `tdl 0.20.3` 二进制文件（`tdl_Linux_64bit.tar.gz`）。
-- `app-meta-tg-downloader-ui_0.1.0-r1_all.ipk`：iStore 已安装应用元数据包。
+- `tg-downloader-ui_0.1.3_all.ipk`：与架构无关的应用包，需要另行安装与设备架构匹配的上游 `tdl`。
+- `tg-downloader-ui-full_0.1.3_x86_64.ipk`：x86_64 完整包，包含应用和未经修改的上游 `tdl 0.20.3` 二进制文件（`tdl_Linux_64bit.tar.gz`）。
+- `app-meta-tg-downloader-ui_0.1.3-r1_all.ipk`：iStore 已安装应用元数据包。
 
 构建独立的 aarch64 完整包（OpenWrt `Architecture: aarch64_generic`，上游 `tdl_Linux_arm64.tar.gz`）：
 
@@ -303,16 +303,16 @@ python scripts/build_openwrt_ipk.py --full-arch aarch64
 python scripts/build_openwrt_ipk.py --full-arch all
 ```
 
-使用 `--full-arch all` 时还会生成 `tg-downloader-ui-full_0.1.0_aarch64_generic.ipk`。不同 CPU 架构的 full 包是独立 IPK 文件，包名同为 `tg-downloader-ui-full`，并 Conflicts/Provides `tg-downloader-ui`。
+使用 `--full-arch all` 时还会生成 `tg-downloader-ui-full_0.1.3_aarch64_generic.ipk`。不同 CPU 架构的 full 包是独立 IPK 文件，包名同为 `tg-downloader-ui-full`，并 Conflicts/Provides `tg-downloader-ui`。
 
 两个应用包（generic 与任一 full）只能选择一个安装：
 
 ```sh
-opkg install tg-downloader-ui_0.1.0_all.ipk
+opkg install tg-downloader-ui_0.1.3_all.ipk
 # 或者在 x86_64 设备上：
-opkg install tg-downloader-ui-full_0.1.0_x86_64.ipk
+opkg install tg-downloader-ui-full_0.1.3_x86_64.ipk
 # 或者在 aarch64 OpenWrt 上：
-opkg install tg-downloader-ui-full_0.1.0_aarch64_generic.ipk
+opkg install tg-downloader-ui-full_0.1.3_aarch64_generic.ipk
 ```
 
 generic 与 full 包拥有相同的运行时文件，因此声明为互相冲突。full 包省去了单独安装 `tdl` 的步骤，但仍需完成首次管理员初始化，并通过 Web UI 二维码流程或使用相同存储路径执行 `tdl login` 登录自己的 Telegram 账户。
@@ -347,4 +347,4 @@ python scripts/build_openwrt_ipk.py
 
 ## 许可证
 
-本项目自身代码采用 MIT 许可证。多架构 Docker 镜像（`linux/amd64` 与 `linux/arm64`）以及 full OpenWrt IPK（`tg-downloader-ui-full_0.1.0_x86_64.ipk` 与 `tg-downloader-ui-full_0.1.0_aarch64_generic.ipk`）内置的 `tdl` 是未经修改的上游 `tdl 0.20.3` 二进制文件，采用 AGPL-3.0 许可证。每个 full IPK 会在 `/usr/share/licenses/tg-downloader-ui-full` 中安装上游许可证及源码/版本声明。详情参阅 [THIRD_PARTY.md](THIRD_PARTY.md)。
+本项目自身代码采用 MIT 许可证。多架构 Docker 镜像（`linux/amd64` 与 `linux/arm64`）以及 full OpenWrt IPK（`tg-downloader-ui-full_0.1.3_x86_64.ipk` 与 `tg-downloader-ui-full_0.1.3_aarch64_generic.ipk`）内置的 `tdl` 是未经修改的上游 `tdl 0.20.3` 二进制文件，采用 AGPL-3.0 许可证。每个 full IPK 会在 `/usr/share/licenses/tg-downloader-ui-full` 中安装上游许可证及源码/版本声明。详情参阅 [THIRD_PARTY.md](THIRD_PARTY.md)。

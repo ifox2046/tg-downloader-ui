@@ -215,7 +215,7 @@ The published Docker image is multi-architecture (`linux/amd64` and
 `linux/arm64`) under one name on Docker Hub:
 
 ```text
-ifox2046/tg-downloader-ui:0.1.2
+ifox2046/tg-downloader-ui:0.1.3
 ifox2046/tg-downloader-ui:latest
 ```
 
@@ -225,7 +225,7 @@ binary for that architecture (`tdl_Linux_64bit.tar.gz` on amd64,
 `docker build` on an amd64 host still works without Buildx.
 
 ```sh
-docker pull ifox2046/tg-downloader-ui:0.1.2
+docker pull ifox2046/tg-downloader-ui:0.1.3
 ```
 
 The container starts the Web UI and optional forwarder by default; set
@@ -363,9 +363,9 @@ python scripts/build_openwrt_ipk.py
 
 The default builder run produces three packages:
 
-- `tg-downloader-ui_0.1.0_all.ipk`: architecture-independent application package. Install the correct upstream `tdl` binary separately.
-- `tg-downloader-ui-full_0.1.0_x86_64.ipk`: complete x86_64 package containing the application and the unmodified upstream `tdl 0.20.3` binary (`tdl_Linux_64bit.tar.gz`).
-- `app-meta-tg-downloader-ui_0.1.0-r1_all.ipk`: iStore installed-app metadata.
+- `tg-downloader-ui_0.1.3_all.ipk`: architecture-independent application package. Install the correct upstream `tdl` binary separately.
+- `tg-downloader-ui-full_0.1.3_x86_64.ipk`: complete x86_64 package containing the application and the unmodified upstream `tdl 0.20.3` binary (`tdl_Linux_64bit.tar.gz`).
+- `app-meta-tg-downloader-ui_0.1.3-r1_all.ipk`: iStore installed-app metadata.
 
 Build a separate aarch64 full package (OpenWrt `Architecture: aarch64_generic`, upstream `tdl_Linux_arm64.tar.gz`) with:
 
@@ -375,16 +375,16 @@ python scripts/build_openwrt_ipk.py --full-arch aarch64
 python scripts/build_openwrt_ipk.py --full-arch all
 ```
 
-That emits `tg-downloader-ui-full_0.1.0_aarch64_generic.ipk` in addition to the packages above when using `--full-arch all`. Full packages for different CPU arches are separate IPK files that share the same package name (`tg-downloader-ui-full`) and Conflicts/Provides `tg-downloader-ui`.
+That emits `tg-downloader-ui-full_0.1.3_aarch64_generic.ipk` in addition to the packages above when using `--full-arch all`. Full packages for different CPU arches are separate IPK files that share the same package name (`tg-downloader-ui-full`) and Conflicts/Provides `tg-downloader-ui`.
 
 Install only one application package:
 
 ```sh
-opkg install tg-downloader-ui_0.1.0_all.ipk
+opkg install tg-downloader-ui_0.1.3_all.ipk
 # or, on x86_64:
-opkg install tg-downloader-ui-full_0.1.0_x86_64.ipk
+opkg install tg-downloader-ui-full_0.1.3_x86_64.ipk
 # or, on aarch64 OpenWrt:
-opkg install tg-downloader-ui-full_0.1.0_aarch64_generic.ipk
+opkg install tg-downloader-ui-full_0.1.3_aarch64_generic.ipk
 ```
 
 The generic and full packages conflict because they own the same runtime files. The full package removes the separate `tdl` installation step, but it does not remove first-run administrator setup or Telegram authentication. Log in to your own Telegram account with the Web UI QR flow or with `tdl login` using the configured storage path.
@@ -425,4 +425,4 @@ python scripts/build_openwrt_ipk.py
 
 ## License
 
-This project's own code is MIT licensed. The `tdl` binary bundled in multi-arch Docker images (`linux/amd64` and `linux/arm64`) and the full OpenWrt IPKs (`tg-downloader-ui-full_0.1.0_x86_64.ipk` and `tg-downloader-ui-full_0.1.0_aarch64_generic.ipk`) is an unmodified upstream `tdl 0.20.3` binary licensed under AGPL-3.0. Each full IPK includes the upstream license and source/version notice under `/usr/share/licenses/tg-downloader-ui-full`. See [THIRD_PARTY.md](THIRD_PARTY.md).
+This project's own code is MIT licensed. The `tdl` binary bundled in multi-arch Docker images (`linux/amd64` and `linux/arm64`) and the full OpenWrt IPKs (`tg-downloader-ui-full_0.1.3_x86_64.ipk` and `tg-downloader-ui-full_0.1.3_aarch64_generic.ipk`) is an unmodified upstream `tdl 0.20.3` binary licensed under AGPL-3.0. Each full IPK includes the upstream license and source/version notice under `/usr/share/licenses/tg-downloader-ui-full`. See [THIRD_PARTY.md](THIRD_PARTY.md).

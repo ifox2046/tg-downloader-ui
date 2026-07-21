@@ -25,7 +25,7 @@ archive is verified with a pinned SHA-256 before extraction:
 
 Each full IPK installs the upstream AGPL-3.0 license and a version/source notice under `/usr/share/licenses/tg-downloader-ui-full`.
 
-The generic `tg-downloader-ui_0.1.0_all.ipk` and the Python package do not bundle `tdl`; users provide it separately.
+The generic `tg-downloader-ui_0.1.3_all.ipk` and the Python package do not bundle `tdl`; users provide it separately.
 
 Anyone publishing a prebuilt image containing `tdl` must satisfy the
 corresponding AGPL-3.0 source-code availability and notice obligations.

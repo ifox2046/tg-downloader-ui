@@ -426,6 +426,25 @@ def write_sidecar_metadata(
     return [json_path, text_path]
 
 
+def filter_export_json_to_message(export_json: str, expected_message_id: int) -> str:
+    """Keep only the target message in a tdl export JSON.
+
+    tdl ``chat export -T id -i N`` may treat N as a range start and include
+    later message IDs. Download must not consume that multi-message export.
+    """
+    data = json.loads(export_json)
+    messages = data.get("messages") or []
+    selected = [
+        message
+        for message in messages
+        if int(message.get("id", -1)) == int(expected_message_id)
+    ]
+    if not selected:
+        raise ValueError(f"message {expected_message_id} was not exported")
+    data["messages"] = selected
+    return json.dumps(data, ensure_ascii=False, indent=2)
+
+
 def extract_export_metadata(export_json: str, expected_message_id: int) -> ExportMetadata:
     data = json.loads(export_json)
     dialog_id = int(data["id"])
@@ -439,7 +458,7 @@ def extract_export_metadata(export_json: str, expected_message_id: int) -> Expor
             selected = message
             break
     if selected is None:
-        selected = messages[0]
+        raise ValueError(f"message {expected_message_id} was not exported")
 
     source_file = str(selected.get("file") or "").strip()
     if not source_file:
@@ -1859,6 +1878,8 @@ class DownloadWorker(threading.Thread):
 
         if not resume_requested:
             self.check_canceled(job_id)
+            # tdl 0.20.3 -i accepts a single Atoi int only (not "N-N"). A bare
+            # "-i N" may still export later ids as a range start; pin JSON below.
             export_cmd = build_tdl_base_args(storage=tdl_storage) + [
                 "chat",
                 "export",
@@ -1877,6 +1898,11 @@ class DownloadWorker(threading.Thread):
                 raise JobCanceled("canceled by user")
             if export_code != 0:
                 raise RuntimeError(f"tdl export failed with exit code {export_code}")
+            # Always pin export JSON to the requested id before download -f.
+            filtered = filter_export_json_to_message(
+                export_path.read_text(encoding="utf-8"), message_id
+            )
+            export_path.write_text(filtered + "\n", encoding="utf-8")
 
         self.check_canceled(job_id)
         metadata = extract_export_metadata(export_path.read_text(encoding="utf-8"), message_id)
@@ -2922,6 +2948,8 @@ INDEX_HTML = r"""<!doctype html>
         confirm_tdl_code: '开始 tdl 验证码登录？已有 tdl 登录数据可能被覆盖。',
         jobs_queued: '任务已加入队列',
         confirm_restart_forwarder: '确认重启 forwarder？',
+        confirm_cancel_job: '确认取消该下载任务？进行中的下载会停止。',
+        confirm_delete_job: '确认删除该任务记录？不会删除已下载的文件。',
         no_subdirs: '没有子目录',
         writable: '可写',
         readonly: '只读',
@@ -2944,6 +2972,7 @@ INDEX_HTML = r"""<!doctype html>
         empty_jobs_desc: '选择模式并提交消息 ID、链接或导出文件，任务会进入队列。',
         pause: '暂停',
         resume: '继续',
+        cancel: '取消',
         delete: '删除',
         setup_h1: '初始化下载中控',
         setup_intro: '首次启动时创建管理员账号并设置下载目录。Telegram 转发器字段可以稍后在授权页补充。',
@@ -3109,6 +3138,8 @@ INDEX_HTML = r"""<!doctype html>
         confirm_tdl_code: 'Start tdl code login? Existing tdl login data may be overwritten.',
         jobs_queued: 'Jobs queued',
         confirm_restart_forwarder: 'Restart forwarder?',
+        confirm_cancel_job: 'Cancel this download job? An in-progress download will stop.',
+        confirm_delete_job: 'Delete this job record? Downloaded files are not removed.',
         no_subdirs: 'No subdirectories',
         writable: 'Writable',
         readonly: 'Read-only',
@@ -3131,6 +3162,7 @@ INDEX_HTML = r"""<!doctype html>
         empty_jobs_desc: 'Choose a mode and submit message IDs, links, or an export file to queue downloads.',
         pause: 'Pause',
         resume: 'Resume',
+        cancel: 'Cancel',
         delete: 'Delete',
         setup_h1: 'Initialize download console',
         setup_intro: 'Create the admin account and download directory on first start. Telegram forwarder fields can be filled later on the auth page.',
@@ -3529,8 +3561,13 @@ INDEX_HTML = r"""<!doctype html>
     async function resumeJob(id) { await api(`/api/jobs/${id}/resume`, {method:'POST', body:'{}'}); await refreshJobs(); }
     async function pauseJob(id) { await api(`/api/jobs/${id}/pause`, {method:'POST', body:'{}'}); await refreshJobs(); }
     async function retryJob(id) { await resumeJob(id); }
-    async function cancelJob(id) { await pauseJob(id); }
+    async function cancelJob(id) {
+      if (!confirm(t('confirm_cancel_job'))) { return; }
+      await api(`/api/jobs/${id}/cancel`, {method:'POST', body:'{}'});
+      await refreshJobs();
+    }
     async function deleteJob(id) {
+      if (!confirm(t('confirm_delete_job'))) { return; }
       await api(`/api/jobs/${id}`, {method:'DELETE'});
       if (selectedJob === id) { selectedJob = null; document.getElementById('logPanel').textContent = ''; }
       await refreshJobs();
@@ -3613,12 +3650,14 @@ INDEX_HTML = r"""<!doctype html>
       body.innerHTML = lastJobs.map(job => {
         const pct = Math.max(0, Math.min(100, Number(job.progress || 0)));
         const active = ['queued','exporting','downloading','renaming'].includes(job.status);
+        const cancelable = ['queued','exporting','downloading','renaming','paused'].includes(job.status);
         const resume = ['paused','failed','canceled'].includes(job.status) ? `<button class="secondary" onclick="resumeJob(${job.id})">${t('resume')}</button>` : '';
         const pause = active ? `<button class="secondary" onclick="pauseJob(${job.id})">${t('pause')}</button>` : '';
+        const cancel = cancelable ? `<button class="danger" onclick="cancelJob(${job.id})">${t('cancel')}</button>` : '';
         const remove = !['exporting','downloading','renaming','paused'].includes(job.status) ? `<button class="danger" onclick="deleteJob(${job.id})">${t('delete')}</button>` : '';
         const mode = job.mode || 'message_id';
         const sourceText = mode === 'message_id' ? (job.source_label || job.source_chat || '') : modeLabel(mode);
-        return `<tr><td class="mono">#${job.id}</td><td><span class="status mode">${escapeHtml(modeLabel(mode))}</span></td><td>${escapeHtml(sourceText)}</td><td class="mono title-cell">${escapeHtml(jobIdentifier(job))}</td><td><span class="status ${job.status}">${statusLabel(job.status)}</span></td><td class="title-cell">${escapeHtml(job.title || job.error || '')}</td><td><div class="bar"><i style="width:${pct}%"></i></div><span class="muted">${pct.toFixed(1)}%</span></td><td>${escapeHtml(job.speed || '')}</td><td class="mono">${job.process_pid || ''}</td><td class="path-cell">${escapeHtml(job.download_dir || '')}</td><td class="title-cell">${escapeHtml(job.final_path || job.source_file || '')}</td><td class="actions"><button class="secondary" onclick="loadLog(${job.id})">${t('log')}</button>${pause}${resume}${remove}</td></tr>`;
+        return `<tr><td class="mono">#${job.id}</td><td><span class="status mode">${escapeHtml(modeLabel(mode))}</span></td><td>${escapeHtml(sourceText)}</td><td class="mono title-cell">${escapeHtml(jobIdentifier(job))}</td><td><span class="status ${job.status}">${statusLabel(job.status)}</span></td><td class="title-cell">${escapeHtml(job.title || job.error || '')}</td><td><div class="bar"><i style="width:${pct}%"></i></div><span class="muted">${pct.toFixed(1)}%</span></td><td>${escapeHtml(job.speed || '')}</td><td class="mono">${job.process_pid || ''}</td><td class="path-cell">${escapeHtml(job.download_dir || '')}</td><td class="title-cell">${escapeHtml(job.final_path || job.source_file || '')}</td><td class="actions"><button class="secondary" onclick="loadLog(${job.id})">${t('log')}</button>${pause}${cancel}${resume}${remove}</td></tr>`;
       }).join('');
     }
     async function refreshJobs() {
@@ -4047,6 +4086,7 @@ SETUP_HTML = r"""<!doctype html>
         empty_jobs_desc: 'Pick a source and enter message IDs to queue jobs. Finished files are archived from media metadata.',
         pause: 'Pause',
         resume: 'Resume',
+        cancel: 'Cancel',
         delete: 'Delete',
         setup_h1: 'Initialize download console',
         setup_intro: 'Create the admin account and download directory on first start. Telegram forwarder fields can be filled later on the auth page.',
@@ -4509,6 +4549,7 @@ LOGIN_HTML = r"""<!doctype html>
         empty_jobs_desc: 'Pick a source and enter message IDs to queue jobs. Finished files are archived from media metadata.',
         pause: 'Pause',
         resume: 'Resume',
+        cancel: 'Cancel',
         delete: 'Delete',
         setup_h1: 'Initialize download console',
         setup_intro: 'Create the admin account and download directory on first start. Telegram forwarder fields can be filled later on the auth page.',

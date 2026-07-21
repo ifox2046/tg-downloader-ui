@@ -250,7 +250,7 @@ class OpenWrtIpkBuilderTests(unittest.TestCase):
 
             self.assertEqual(
                 ipk_path.name,
-                "tg-downloader-ui-full_0.1.0_x86_64.ipk",
+                "tg-downloader-ui-full_0.1.3_x86_64.ipk",
             )
             members = read_outer_tar_members(ipk_path)
             self.assertEqual(
@@ -265,7 +265,7 @@ class OpenWrtIpkBuilderTests(unittest.TestCase):
             self.assertIsNotNone(control_handle)
             control = control_handle.read().decode("utf-8")
             self.assertIn("Package: tg-downloader-ui-full", control)
-            self.assertIn("Version: 0.1.0", control)
+            self.assertIn("Version: 0.1.3", control)
             self.assertIn("Architecture: x86_64", control)
             self.assertIn("Conflicts: tg-downloader-ui", control)
             self.assertIn("Provides: tg-downloader-ui", control)
@@ -334,7 +334,7 @@ class OpenWrtIpkBuilderTests(unittest.TestCase):
 
             self.assertEqual(
                 ipk_path.name,
-                "tg-downloader-ui-full_0.1.0_aarch64_generic.ipk",
+                "tg-downloader-ui-full_0.1.3_aarch64_generic.ipk",
             )
             members = read_outer_tar_members(ipk_path)
             control_tar = tarfile.open(
@@ -417,7 +417,7 @@ class OpenWrtIpkBuilderTests(unittest.TestCase):
         ):
             ipk_path = builder.build_ipk(root, Path(tmp))
 
-            self.assertEqual(ipk_path.name, "tg-downloader-ui_0.1.0_all.ipk")
+            self.assertEqual(ipk_path.name, "tg-downloader-ui_0.1.3_all.ipk")
             members = read_outer_tar_members(ipk_path)
             self.assertEqual(set(members), {"debian-binary", "control.tar.gz", "data.tar.gz"})
             self.assertEqual(members["debian-binary"], b"2.0\n")
@@ -431,7 +431,7 @@ class OpenWrtIpkBuilderTests(unittest.TestCase):
             postinst = control_tar.extractfile("./postinst").read().decode("utf-8")
 
             self.assertIn("Package: tg-downloader-ui", control)
-            self.assertIn("Version: 0.1.0", control)
+            self.assertIn("Version: 0.1.3", control)
             self.assertIn("Architecture: all", control)
             self.assertIn("python3", control)
             self.assertIn("python3-sqlite3", control)
@@ -528,10 +528,10 @@ class OpenWrtIpkBuilderTests(unittest.TestCase):
         builder = load_builder()
 
         with tempfile.TemporaryDirectory() as tmp:
-            ipk_path = builder.build_meta_ipk(root, Path(tmp), version="0.1.0")
+            ipk_path = builder.build_meta_ipk(root, Path(tmp), version="0.1.3")
 
             self.assertEqual(
-                ipk_path.name, "app-meta-tg-downloader-ui_0.1.0-r1_all.ipk"
+                ipk_path.name, "app-meta-tg-downloader-ui_0.1.3-r1_all.ipk"
             )
             members = read_outer_tar_members(ipk_path)
             self.assertEqual(
@@ -543,7 +543,7 @@ class OpenWrtIpkBuilderTests(unittest.TestCase):
             )
             control = control_tar.extractfile("./control").read().decode("utf-8")
             self.assertIn("Package: app-meta-tg-downloader-ui", control)
-            self.assertIn("Version: 0.1.0-r1", control)
+            self.assertIn("Version: 0.1.3-r1", control)
             self.assertIn("Depends: tg-downloader-ui", control)
             self.assertIn("Section: meta", control)
             self.assertNotIn("luci-app-store", control)
@@ -561,7 +561,7 @@ class OpenWrtIpkBuilderTests(unittest.TestCase):
                 meta["entry"], "/cgi-bin/luci/admin/services/tg-downloader-ui"
             )
             self.assertEqual(meta["depends"], ["tg-downloader-ui"])
-            self.assertEqual(meta["version"], "0.1.0")
+            self.assertEqual(meta["version"], "0.1.3")
             self.assertEqual(meta["release"], 1)
             self.assertIn("net", meta["tags"])
 
@@ -709,9 +709,9 @@ exit 99
 
     def test_main_builds_generic_full_and_meta_packages(self):
         builder = load_builder()
-        generic = Path("dist/openwrt/tg-downloader-ui_0.1.0_all.ipk")
-        full = Path("dist/openwrt/tg-downloader-ui-full_0.1.0_x86_64.ipk")
-        meta = Path("dist/openwrt/app-meta-tg-downloader-ui_0.1.0-r1_all.ipk")
+        generic = Path("dist/openwrt/tg-downloader-ui_0.1.3_all.ipk")
+        full = Path("dist/openwrt/tg-downloader-ui-full_0.1.3_x86_64.ipk")
+        meta = Path("dist/openwrt/app-meta-tg-downloader-ui_0.1.3-r1_all.ipk")
 
         with (
             mock.patch("sys.argv", ["build_openwrt_ipk.py"]),
@@ -731,12 +731,12 @@ exit 99
 
     def test_main_builds_selected_full_arches(self):
         builder = load_builder()
-        generic = Path("dist/openwrt/tg-downloader-ui_0.1.0_all.ipk")
-        full_x86 = Path("dist/openwrt/tg-downloader-ui-full_0.1.0_x86_64.ipk")
+        generic = Path("dist/openwrt/tg-downloader-ui_0.1.3_all.ipk")
+        full_x86 = Path("dist/openwrt/tg-downloader-ui-full_0.1.3_x86_64.ipk")
         full_arm = Path(
-            "dist/openwrt/tg-downloader-ui-full_0.1.0_aarch64_generic.ipk"
+            "dist/openwrt/tg-downloader-ui-full_0.1.3_aarch64_generic.ipk"
         )
-        meta = Path("dist/openwrt/app-meta-tg-downloader-ui_0.1.0-r1_all.ipk")
+        meta = Path("dist/openwrt/app-meta-tg-downloader-ui_0.1.3-r1_all.ipk")
         full_paths = {
             "x86_64": full_x86,
             "aarch64_generic": full_arm,
@@ -767,11 +767,11 @@ exit 99
 
     def test_main_full_arch_all_builds_every_profile(self):
         builder = load_builder()
-        generic = Path("dist/openwrt/tg-downloader-ui_0.1.0_all.ipk")
-        meta = Path("dist/openwrt/app-meta-tg-downloader-ui_0.1.0-r1_all.ipk")
+        generic = Path("dist/openwrt/tg-downloader-ui_0.1.3_all.ipk")
+        meta = Path("dist/openwrt/app-meta-tg-downloader-ui_0.1.3-r1_all.ipk")
 
         def build_full_side_effect(root, output_dir, version=None, architecture="x86_64", fetcher=None):
-            return output_dir / f"tg-downloader-ui-full_0.1.0_{architecture}.ipk"
+            return output_dir / f"tg-downloader-ui-full_0.1.3_{architecture}.ipk"
 
         with (
             mock.patch("sys.argv", ["build_openwrt_ipk.py", "--full-arch", "all"]),

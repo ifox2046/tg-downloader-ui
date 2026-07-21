@@ -1,8 +1,10 @@
 FROM python:3.12-slim
 
-# BuildKit sets TARGETARCH (amd64, arm64, …). Default keeps plain
-# `docker build` / compose on x86_64 hosts on the amd64 tdl pin.
-ARG TARGETARCH=amd64
+# BuildKit injects TARGETARCH (amd64, arm64, …). Do not default it on the
+# ARG line — a default of amd64 overrides multi-arch builds and installs the
+# wrong tdl binary on arm64. Plain `docker build` on amd64 still gets amd64
+# via ${TARGETARCH:-amd64} in the RUN below.
+ARG TARGETARCH
 ARG TDL_VERSION=0.20.3
 ARG TGDL_UID=1000
 ARG TGDL_GID=1000
@@ -34,8 +36,12 @@ RUN apt-get update \
 # Pinned unmodified upstream tdl 0.20.3 assets (aligned with OpenWrt full IPKs).
 # amd64: tdl_Linux_64bit.tar.gz / f69fe06c17f74c30a3b894b5be05c57a1b082f56b346c994025a2301b269a718
 # arm64: tdl_Linux_arm64.tar.gz / 8398784d5b9390d26450e3e3528e2ffd0e9fe75d374f63273d0247e7ab0378b7
+# Re-declare so this layer sees BuildKit's per-platform TARGETARCH.
+ARG TARGETARCH
+ARG TDL_VERSION=0.20.3
 RUN set -eux; \
     arch="${TARGETARCH:-amd64}"; \
+    echo "installing tdl for TARGETARCH=${arch}"; \
     case "${arch}" in \
       amd64|x86_64) \
         tdl_asset="tdl_Linux_64bit.tar.gz"; \

@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 0.1.3 - 2026-07-21
+
+- Pin URL/message-ID export JSON to the requested message id before `tdl download -f` so adjacent channel messages are not downloaded (tdl 0.20.3 `-i` is a single id; multi-message exports are filtered in-app).
+- Show a dedicated Cancel button on queued/active/paused jobs that calls `/api/jobs/{id}/cancel` (separate from Pause); Cancel and Delete ask for browser confirmation.
+- Fix multi-arch Docker builds so BuildKit `TARGETARCH` is not overridden by a hardcoded amd64 default (arm64 images install `tdl_Linux_arm64`).
 - Isolate concurrent download workers onto cloned tdl bolt storage slots so parallel jobs no longer fail with "database is used by another process".
 - Add configurable concurrent download jobs (`max_concurrent_jobs` in `config.json` / Web UI paths page, optional `TGDL_MAX_CONCURRENT_JOBS` when the key is missing). Default 1, max 8; worker pool resizes without full process restart. Paused jobs count toward the concurrency limit.
 - Fix download-page URL mode submit-band layout alignment; fix login/setup top-right language switch button sizing.

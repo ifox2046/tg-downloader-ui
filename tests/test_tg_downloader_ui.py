@@ -24,6 +24,7 @@ from tg_downloader_ui.app import (
     build_final_filename,
     extract_export_metadata,
     extract_title,
+    filter_export_json_to_message,
     parse_tdl_progress,
     sanitize_filename,
     write_sidecar_metadata,
@@ -87,6 +88,34 @@ class MetadataParsingTests(unittest.TestCase):
             build_final_filename(metadata),
             "小黄人与大怪兽 抢先版.mp4",
         )
+
+    def test_filter_export_json_keeps_only_expected_message(self):
+        payload = {
+            "id": 1687077497,
+            "messages": [
+                {"id": 10008, "file": "西湖1.MP4", "text": "next"},
+                {"id": 10007, "file": "movie.mp4", "text": "片名：目标影片"},
+                {"id": 10010, "file": "other.mp4"},
+            ],
+        }
+        filtered = filter_export_json_to_message(
+            json.dumps(payload, ensure_ascii=False), 10007
+        )
+        data = json.loads(filtered)
+        self.assertEqual([m["id"] for m in data["messages"]], [10007])
+        metadata = extract_export_metadata(filtered, 10007)
+        self.assertEqual(metadata.message_id, 10007)
+        self.assertEqual(metadata.source_file, "movie.mp4")
+
+    def test_extract_export_metadata_rejects_missing_expected_id(self):
+        payload = {
+            "id": 1,
+            "messages": [{"id": 10008, "file": "西湖1.MP4"}],
+        }
+        with self.assertRaisesRegex(ValueError, "message 10007 was not exported"):
+            extract_export_metadata(json.dumps(payload), 10007)
+        with self.assertRaisesRegex(ValueError, "message 10007 was not exported"):
+            filter_export_json_to_message(json.dumps(payload), 10007)
 
 class ProgressParsingTests(unittest.TestCase):
     def test_parses_tdl_progress_line_with_ansi_sequences(self):
@@ -1008,7 +1037,7 @@ class IndexTemplateTests(unittest.TestCase):
         self.assertNotIn('id="tdlLoginInput"', html)
         self.assertNotIn('id="sendTdlLoginInputBtn"', html)
 
-    def test_index_uses_pause_and_resume_job_controls(self):
+    def test_index_uses_pause_resume_and_cancel_job_controls(self):
         html = app.INDEX_HTML
 
         for marker in [
@@ -1018,16 +1047,24 @@ class IndexTemplateTests(unittest.TestCase):
             "status_canceled: '已取消'",
             "function pauseJob(id)",
             "function resumeJob(id)",
+            "function cancelJob(id)",
             "/api/jobs/${id}/pause",
             "/api/jobs/${id}/resume",
+            "/api/jobs/${id}/cancel",
             "onclick=\"pauseJob(${job.id})\">${t('pause')}",
             "onclick=\"resumeJob(${job.id})\">${t('resume')}",
+            "onclick=\"cancelJob(${job.id})\">${t('cancel')}",
+            "confirm(t('confirm_cancel_job'))",
+            "confirm(t('confirm_delete_job'))",
+            "confirm_cancel_job: '确认取消该下载任务？进行中的下载会停止。'",
+            "confirm_delete_job: '确认删除该任务记录？不会删除已下载的文件。'",
             "pause: '暂停'",
             "resume: '继续'",
+            "cancel: '取消'",
         ]:
             self.assertIn(marker, html)
 
-        self.assertNotIn("onclick=\"cancelJob(${job.id})\">取消</button>", html)
+        self.assertNotIn("async function cancelJob(id) { await pauseJob(id); }", html)
         self.assertNotIn("onclick=\"retryJob(${job.id})\">重试</button>", html)
 
     def test_index_has_download_mode_selector_and_i18n_keys(self):
@@ -3222,12 +3259,75 @@ class UrlExportFirstWorkerTests(unittest.TestCase):
                     worker.export_command[worker.export_command.index("-i") + 1],
                     "193",
                 )
+                # Multi-message export from tdl must be pinned before download.
+                export_data = json.loads(Path(job["export_path"]).read_text(encoding="utf-8"))
+                self.assertEqual([m["id"] for m in export_data["messages"]], [193])
                 self.assertIn("-f", worker.download_command)
                 self.assertNotIn("-u", worker.download_command)
                 result = store.get_job(job["id"])
                 self.assertEqual(result["status"], "done")
                 self.assertEqual(result["title"], "绵羊侦探团")
                 self.assertIn("Movies", str(result["final_path"]))
+        finally:
+            app.DOWNLOAD_DIR = original_download_dir
+
+    def test_url_job_filters_multi_message_export_before_download(self):
+        class MultiExportWorker(DownloadWorker):
+            def __init__(self, store, stop_event, payload, download_dir):
+                super().__init__(store, stop_event)
+                self.payload = payload
+                self.download_dir = download_dir
+                self.export_written = None
+
+            def run_command(self, job_id, cmd, status):
+                if status == "exporting":
+                    job = self.store.get_job(job_id)
+                    Path(job["export_path"]).write_text(
+                        json.dumps(self.payload, ensure_ascii=False), encoding="utf-8"
+                    )
+                    return 0
+                if status == "downloading":
+                    job = self.store.get_job(job_id)
+                    self.export_written = json.loads(
+                        Path(job["export_path"]).read_text(encoding="utf-8")
+                    )
+                    default_path = self.download_dir / "1687077497_10007_movie.mp4"
+                    default_path.write_bytes(b"movie")
+                    return 0
+                return 0
+
+        original_download_dir = app.DOWNLOAD_DIR
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                app.DOWNLOAD_DIR = root / "downloads"
+                app.DOWNLOAD_DIR.mkdir()
+                store = JobStore(root / "state")
+                store.init()
+                store.create_job(
+                    0,
+                    mode="url",
+                    input_payload={"urls": ["https://t.me/gcdy9931/10007"]},
+                    source_label="url",
+                )
+                job = store.claim_next()
+                payload = {
+                    "id": 1687077497,
+                    "messages": [
+                        {"id": 10008, "file": "西湖1.MP4", "text": "next"},
+                        {"id": 10007, "file": "movie.mp4", "text": "片名：目标影片"},
+                        {"id": 10010, "file": "other.mp4"},
+                    ],
+                }
+                worker = MultiExportWorker(store, threading.Event(), payload, app.DOWNLOAD_DIR)
+                worker.process_job(job)
+                self.assertEqual(
+                    [m["id"] for m in worker.export_written["messages"]],
+                    [10007],
+                )
+                result = store.get_job(job["id"])
+                self.assertEqual(result["status"], "done")
+                self.assertEqual(result["title"], "目标影片")
         finally:
             app.DOWNLOAD_DIR = original_download_dir
 
