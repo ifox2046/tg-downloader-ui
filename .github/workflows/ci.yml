@@ -50,21 +50,21 @@ jobs:
       # Default: generic + x86_64 full + meta. Also emit arm64 full for structural checks.
       - run: python scripts/build_openwrt_ipk.py --output-dir dist/openwrt --full-arch all
       - run: |
-          test -f dist/openwrt/tg-downloader-ui_0.1.3_all.ipk
-          test -f dist/openwrt/tg-downloader-ui-full_0.1.3_x86_64.ipk
-          test -f dist/openwrt/tg-downloader-ui-full_0.1.3_aarch64_generic.ipk
-          test -f dist/openwrt/app-meta-tg-downloader-ui_0.1.3-r1_all.ipk
+          test -f dist/openwrt/tg-downloader-ui_0.1.4_all.ipk
+          test -f dist/openwrt/tg-downloader-ui-full_0.1.4_x86_64.ipk
+          test -f dist/openwrt/tg-downloader-ui-full_0.1.4_aarch64_generic.ipk
+          test -f dist/openwrt/app-meta-tg-downloader-ui_0.1.4-r1_all.ipk
 
           generic_root="$(mktemp -d)"
           full_root="$(mktemp -d)"
           arm_root="$(mktemp -d)"
           trap 'rm -rf "$generic_root" "$full_root" "$arm_root"' EXIT
 
-          tar -xOf dist/openwrt/tg-downloader-ui_0.1.3_all.ipk ./data.tar.gz | tar -xz -C "$generic_root"
+          tar -xOf dist/openwrt/tg-downloader-ui_0.1.4_all.ipk ./data.tar.gz | tar -xz -C "$generic_root"
           PYTHONPATH="$generic_root/usr/lib/tg-downloader-ui/vendor" \
             python -c "import telethon, qrcode, rsa, pyasn1, pyaes"
 
-          tar -xOf dist/openwrt/tg-downloader-ui-full_0.1.3_x86_64.ipk ./data.tar.gz | tar -xz -C "$full_root"
+          tar -xOf dist/openwrt/tg-downloader-ui-full_0.1.4_x86_64.ipk ./data.tar.gz | tar -xz -C "$full_root"
           test -x "$full_root/usr/bin/tdl"
           test -x "$full_root/usr/bin/tg-downloader-ui"
           test -f "$full_root/usr/share/licenses/tg-downloader-ui-full/tdl-AGPL-3.0.txt"
@@ -72,9 +72,9 @@ jobs:
           "$full_root/usr/bin/tdl" version | grep '0.20.3'
 
           # aarch64 full: structural extract only on amd64 runners (no qemu required).
-          tar -xOf dist/openwrt/tg-downloader-ui-full_0.1.3_aarch64_generic.ipk ./control.tar.gz \
+          tar -xOf dist/openwrt/tg-downloader-ui-full_0.1.4_aarch64_generic.ipk ./control.tar.gz \
             | tar -xzO ./control | grep -E 'Architecture: aarch64_generic'
-          tar -xOf dist/openwrt/tg-downloader-ui-full_0.1.3_aarch64_generic.ipk ./data.tar.gz \
+          tar -xOf dist/openwrt/tg-downloader-ui-full_0.1.4_aarch64_generic.ipk ./data.tar.gz \
             | tar -xz -C "$arm_root"
           test -x "$arm_root/usr/bin/tdl"
           test -x "$arm_root/usr/bin/tg-downloader-ui"
