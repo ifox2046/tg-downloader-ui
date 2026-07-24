@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 0.1.4 - 2026-07-24
+
+- Add optional Telegram **control bot** (Bot API): Web UI token/enable, private-DM URL and message-ID enqueue (multi-source inline pick), `/jobs` `/status` `/cancel`, job terminal notify, start/graceful-stop and Telegram API recover notifies, backend health probe (5 min / 2 fails). Complements Telethon forwarder; does not replace it.
+- Control bot uses the same Telegram proxy chain as tdl/Telethon (`TGDL_TELEGRAM_PROXY` → `TGDL_PROXY` → `TGDL_TDL_PROXY` → `telegram.proxy`) so `api.telegram.org` works on restricted networks.
+- Reject enqueue of duplicate **open** jobs (queued/exporting/downloading/renaming/paused) for the same URL canonical key or same message_id+source; terminal jobs may be re-queued.
+- Fix OpenWrt/iStoreOS LuCI service page: pack `bot.py` in IPKs; service Start/Restart/Stop/Enable no longer permanently greyed out (`disabled: null` like System → Startup; prefer `luci.setInitAction`).
+
 ## 0.1.3 - 2026-07-21
 
 - Pin URL/message-ID export JSON to the requested message id before `tdl download -f` so adjacent channel messages are not downloaded (tdl 0.20.3 `-i` is a single id; multi-message exports are filtered in-app).

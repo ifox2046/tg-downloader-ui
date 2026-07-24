@@ -74,6 +74,7 @@ APP_COMPAT_LINK = "/opt/tg-downloader-ui"
 
 DATA_FILES = [
     ("tg_downloader_ui/app.py", f"{APP_INSTALL_ROOT}/app.py", 0o755),
+    ("tg_downloader_ui/bot.py", f"{APP_INSTALL_ROOT}/bot.py", 0o644),
     ("tg_downloader_ui/forwarder.py", f"{APP_INSTALL_ROOT}/forwarder.py", 0o755),
     ("tg_downloader_ui/sources.py", f"{APP_INSTALL_ROOT}/sources.py", 0o644),
     ("tg-downloader-ui.init", "./etc/init.d/tg-downloader-ui", 0o755),

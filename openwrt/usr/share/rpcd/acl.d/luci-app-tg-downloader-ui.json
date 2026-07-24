@@ -3,12 +3,14 @@
 		"description": "Grant access to the Telegram Download Manager LuCI controls",
 		"read": {
 			"ubus": {
-				"rc": [ "list" ]
+				"rc": [ "list" ],
+				"luci": [ "getInitList", "setInitAction" ]
 			}
 		},
 		"write": {
 			"ubus": {
-				"rc": [ "init" ]
+				"rc": [ "init" ],
+				"luci": [ "setInitAction" ]
 			}
 		}
 	}

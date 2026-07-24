@@ -256,6 +256,73 @@ class DownloadModeParsingTests(unittest.TestCase):
             self.assertEqual(claimed_url["mode"], "url")
             self.assertEqual(claimed_url["status"], "exporting")
 
+    def test_create_job_rejects_duplicate_open_url_and_message(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            config = app.ConfigStore(
+                root / "state",
+                default_download_dir=root / "downloads",
+                default_password="test-password",
+            )
+            config.init()
+            store = JobStore(root / "state", config)
+            store.init()
+
+            first = store.create_job(
+                0,
+                mode="url",
+                input_payload={"urls": ["https://t.me/name/42"]},
+                source_label="url",
+            )
+            with self.assertRaisesRegex(ValueError, r"duplicate active job #"):
+                store.create_job(
+                    0,
+                    mode="url",
+                    input_payload={"urls": ["https://t.me/name/42?single"]},
+                    source_label="url",
+                )
+            # Same canonical key via path variants still blocked.
+            with self.assertRaisesRegex(ValueError, r"duplicate active job #"):
+                store.create_job(
+                    0,
+                    mode="url",
+                    input_payload={"urls": ["http://t.me/name/42"]},
+                    source_label="url",
+                )
+            # Different message id is fine.
+            other_url = store.create_job(
+                0,
+                mode="url",
+                input_payload={"urls": ["https://t.me/name/43"]},
+                source_label="url",
+            )
+            self.assertNotEqual(first["id"], other_url["id"])
+
+            msg = store.create_job(9001)
+            with self.assertRaisesRegex(ValueError, r"duplicate active job #"):
+                store.create_job(9001)
+            # After terminal status, re-enqueue is allowed.
+            store.finish_job(int(first["id"]), "done")
+            again = store.create_job(
+                0,
+                mode="url",
+                input_payload={"urls": ["https://t.me/name/42"]},
+                source_label="url",
+            )
+            self.assertNotEqual(again["id"], first["id"])
+            store.finish_job(int(msg["id"]), "failed", error="x")
+            store.create_job(9001)
+
+    def test_url_dedupe_key_canonicalizes_telegram_urls(self):
+        self.assertEqual(
+            app.url_dedupe_key("https://t.me/foo/99"),
+            app.url_dedupe_key("https://t.me/foo/99?single"),
+        )
+        self.assertEqual(
+            app.url_dedupe_key("https://t.me/c/1697797156/151"),
+            "-1001697797156:151",
+        )
+
 
 class TelegramProxyParsingTests(unittest.TestCase):
     def test_parse_telegram_proxy_url_keeps_credentials(self):
@@ -1110,8 +1177,9 @@ class IndexTemplateTests(unittest.TestCase):
             "const I18N",
             "function resolveLang()",
             "function t(key)",
-            "function applyI18n(lang)",
+            "function applyI18n(lang, opts)",
             "tgdl_lang",
+            "ui_lang",
             'class="lang-switch"',
             'data-lang="zh"',
             'data-lang="en"',
@@ -1119,6 +1187,7 @@ class IndexTemplateTests(unittest.TestCase):
             "lastTelegramConfig",
             "applyTelegramConfig",
             "function onI18nApplied()",
+            "persistServer",
         ]:
             self.assertIn(marker, html)
 

@@ -32,6 +32,11 @@ from pathlib import Path
 from typing import Any
 
 try:  # Package import locally, flat import on OpenWRT deployment.
+    from .bot import (
+        BotController,
+        normalize_bot_config,
+        public_bot_config,
+    )
     from .forwarder import (
         DEFAULT_FORWARDER_FILTERS,
         forwarder_filters_for_api,
@@ -39,6 +44,11 @@ try:  # Package import locally, flat import on OpenWRT deployment.
     )
     from .sources import DEFAULT_SOURCE_ID, DEFAULT_SOURCES, normalize_sources
 except ImportError:  # pragma: no cover - exercised by OpenWRT flat deployment
+    from bot import (  # type: ignore
+        BotController,
+        normalize_bot_config,
+        public_bot_config,
+    )
     from forwarder import (  # type: ignore
         DEFAULT_FORWARDER_FILTERS,
         forwarder_filters_for_api,
@@ -86,6 +96,8 @@ COOKIE_SECURE = os.environ.get("TGDL_COOKIE_SECURE", "").strip().lower() in {
     "on",
 }
 ACTIVE_STATUSES = {"exporting", "downloading", "renaming", "paused"}
+# queued + in-flight (+ paused still occupies a slot / may resume)
+OPEN_JOB_STATUSES = frozenset({"queued"}) | ACTIVE_STATUSES
 MAX_CONCURRENT_JOBS_LIMIT = 8
 DEFAULT_MAX_CONCURRENT_JOBS = 1
 CANCEL_EXIT_CODE = 130
@@ -603,6 +615,23 @@ def parse_urls(raw: Any) -> list[str]:
     if len(urls) > MAX_URLS:
         raise ValueError(f"too many urls (max {MAX_URLS})")
     return urls
+
+
+def url_dedupe_key(url: str) -> str:
+    """Canonical key for active-job URL dedupe (chat + message id when parseable)."""
+    text = str(url or "").strip()
+    if not text:
+        return ""
+    try:
+        chat, message_id = parse_telegram_message_url(text)
+        return f"{chat}:{message_id}"
+    except ValueError:
+        parsed = urllib.parse.urlparse(text)
+        host = (parsed.netloc or "").lower()
+        if host.startswith("www."):
+            host = host[4:]
+        path = (parsed.path or "").rstrip("/")
+        return f"{parsed.scheme.lower()}://{host}{path}".lower()
 
 
 def resolve_export_path(path: str | Path, exports_root: Path) -> Path:
@@ -1166,6 +1195,59 @@ class ConfigStore:
                 ),
             }
 
+    def get_ui_lang(self) -> str:
+        with self.lock:
+            value = str(self.data.get("ui_lang") or "").strip().lower()
+        return "en" if value.startswith("en") else "zh"
+
+    def set_ui_lang(self, lang: Any) -> str:
+        normalized = "en" if str(lang or "").strip().lower().startswith("en") else "zh"
+        with self.lock:
+            self.data["ui_lang"] = normalized
+            self.save()
+        return normalized
+
+    def get_bot_config(self) -> dict[str, Any]:
+        with self.lock:
+            return normalize_bot_config(self.data.get("bot"))
+
+    def set_bot_config(
+        self,
+        *,
+        enabled: bool | None = None,
+        token: str | None = None,
+        preserve_token: bool = True,
+    ) -> dict[str, Any]:
+        with self.lock:
+            current = normalize_bot_config(self.data.get("bot"))
+            if enabled is not None:
+                current["enabled"] = bool(enabled)
+            if token is not None:
+                text = str(token).strip()
+                if text:
+                    current["token"] = text
+                elif not preserve_token:
+                    current["token"] = ""
+            self.data["bot"] = {
+                "enabled": bool(current["enabled"]),
+                "token": str(current.get("token") or ""),
+                "notify_chat_id": current.get("notify_chat_id"),
+            }
+            self.save()
+            return normalize_bot_config(self.data.get("bot"))
+
+    def set_bot_notify_chat_id(self, chat_id: int) -> dict[str, Any]:
+        with self.lock:
+            current = normalize_bot_config(self.data.get("bot"))
+            current["notify_chat_id"] = int(chat_id)
+            self.data["bot"] = {
+                "enabled": bool(current["enabled"]),
+                "token": str(current.get("token") or ""),
+                "notify_chat_id": current["notify_chat_id"],
+            }
+            self.save()
+            return normalize_bot_config(self.data.get("bot"))
+
     def list_sources(self) -> list[dict[str, Any]]:
         with self.lock:
             sources, _ = normalize_sources(
@@ -1393,6 +1475,7 @@ class JobStore:
         self.exports_dir = state_dir / "exports"
         self.config_store = config_store or ConfigStore(state_dir)
         self.lock = threading.RLock()
+        self.on_job_finished: Any | None = None
 
     def init(self) -> None:
         self.config_store.init()
@@ -1533,6 +1616,13 @@ class JobStore:
                 queue_note = f"Queued export job: {names}\n"
 
         with self.lock, contextlib.closing(self.connect()) as db:
+            self._reject_duplicate_open_job(
+                db,
+                mode=selected_mode,
+                message_id=job_message_id,
+                source_id=job_source_id,
+                payload=payload,
+            )
             cur = db.execute(
                 """
                 INSERT INTO jobs (
@@ -1563,6 +1653,68 @@ class JobStore:
             db.commit()
         self.append_log(job_id, queue_note)
         return self.get_job(job_id) or {}
+
+    def _reject_duplicate_open_job(
+        self,
+        db: sqlite3.Connection,
+        *,
+        mode: str,
+        message_id: int,
+        source_id: str,
+        payload: dict[str, Any],
+    ) -> None:
+        """Block enqueue when an equivalent job is still queued/active/paused."""
+        if mode not in {"message_id", "url"}:
+            return
+        statuses = tuple(sorted(OPEN_JOB_STATUSES))
+        placeholders = ", ".join("?" for _ in statuses)
+        rows = db.execute(
+            f"""
+            SELECT id, mode, message_id, source_id, status, input_payload
+            FROM jobs
+            WHERE status IN ({placeholders})
+            ORDER BY id ASC
+            """,
+            statuses,
+        ).fetchall()
+        if mode == "message_id":
+            for row in rows:
+                row_mode = str(row["mode"] if "mode" in row.keys() else "message_id") or "message_id"
+                if row_mode != "message_id":
+                    continue
+                if int(row["message_id"] or 0) != int(message_id):
+                    continue
+                if str(row["source_id"] or "") != str(source_id or ""):
+                    continue
+                raise ValueError(
+                    f"duplicate active job #{int(row['id'])} "
+                    f"(message_id={message_id}, source={source_id or '-'})"
+                )
+            return
+
+        new_keys = {
+            url_dedupe_key(str(item))
+            for item in (payload.get("urls") or [])
+            if url_dedupe_key(str(item))
+        }
+        if not new_keys:
+            return
+        for row in rows:
+            row_mode = str(row["mode"] if "mode" in row.keys() else "") or ""
+            if row_mode != "url":
+                continue
+            existing = load_job_input_payload(row["input_payload"] if "input_payload" in row.keys() else "")
+            existing_keys = {
+                url_dedupe_key(str(item))
+                for item in (existing.get("urls") or [])
+                if url_dedupe_key(str(item))
+            }
+            overlap = new_keys & existing_keys
+            if overlap:
+                sample = next(iter(overlap))
+                raise ValueError(
+                    f"duplicate active job #{int(row['id'])} (url={sample})"
+                )
 
     def get_job(self, job_id: int) -> dict[str, Any] | None:
         with self.lock, contextlib.closing(self.connect()) as db:
@@ -1632,6 +1784,12 @@ class JobStore:
             fields.setdefault("cancel_requested", 0)
         fields["finished_at"] = utcish_now()
         self.update_job(job_id, **fields)
+        callback = self.on_job_finished
+        if callback is not None and status in {"done", "failed", "canceled", "skipped"}:
+            try:
+                callback(job_id, status, str(fields.get("error") or ""))
+            except Exception:  # noqa: BLE001 - notify must not break finish
+                pass
 
     def retry_job(self, job_id: int) -> dict[str, Any]:
         job = self.get_job(job_id)
@@ -2624,6 +2782,7 @@ INDEX_HTML = r"""<!doctype html>
         <button class="nav-item" data-page="paths" type="button" data-i18n="nav_paths">路径设置</button>
         <button class="nav-item" data-page="sources" type="button" data-i18n="nav_sources">资源来源</button>
         <button class="nav-item" data-page="telegram" type="button" data-i18n="nav_telegram">Telegram 授权</button>
+        <button class="nav-item" data-page="bot" type="button" data-i18n="nav_bot">控制 Bot</button>
         <button class="nav-item" data-page="filters" type="button" data-i18n="nav_filters">转发过滤</button>
         <button class="nav-item" data-page="password" type="button" data-i18n="nav_password">密码管理</button>
       </nav>
@@ -2770,6 +2929,20 @@ INDEX_HTML = r"""<!doctype html>
         </section>
       </section>
 
+      <section class="page" id="page-bot">
+        <section class="band">
+          <h2 data-i18n="bot_title">控制 Bot</h2>
+          <p class="muted" data-i18n="bot_desc">通过 BotFather 创建 bot，粘贴 token 后私聊发送链接或消息 ID 入队。与 Telethon 转发器并存；仅私聊。</p>
+          <div class="form-row" style="grid-template-columns:auto minmax(220px,1fr) auto; align-items:end;">
+            <label class="check-row"><input id="botEnabled" type="checkbox"> <span data-i18n="bot_enabled">启用</span></label>
+            <div><label for="botToken" data-i18n="bot_token">Bot token</label><input id="botToken" type="password" autocomplete="off" data-i18n-placeholder="bot_token_keep" placeholder="留空保持不变"></div>
+            <button id="saveBotBtn" type="button" data-i18n="save">保存</button>
+          </div>
+          <p class="muted" id="botStatusLine" style="margin-top:10px;"></p>
+          <div class="message" id="botMessage"></div>
+        </section>
+      </section>
+
       <section class="page" id="page-password">
         <section class="band">
           <h2 data-i18n="password_title">密码管理</h2>
@@ -2815,8 +2988,16 @@ INDEX_HTML = r"""<!doctype html>
         nav_paths: '路径设置',
         nav_sources: '资源来源',
         nav_telegram: 'Telegram 授权',
+        nav_bot: '控制 Bot',
         nav_filters: '转发过滤',
         nav_password: '密码管理',
+        bot_title: '控制 Bot',
+        bot_desc: '通过 BotFather 创建 bot，粘贴 token 后私聊发送链接或消息 ID 入队。与 Telethon 转发器并存；仅私聊。上线/停机通知需先私聊一次。',
+        bot_enabled: '启用',
+        bot_token: 'Bot token',
+        bot_token_keep: '留空保持不变',
+        bot_status: '状态',
+        bot_saved: '已保存',
         logout: '退出登录',
         eyebrow: '媒体归档工作台',
         lang_zh: '中文',
@@ -3005,8 +3186,16 @@ INDEX_HTML = r"""<!doctype html>
         nav_paths: 'Paths',
         nav_sources: 'Sources',
         nav_telegram: 'Telegram Auth',
+        nav_bot: 'Control bot',
         nav_filters: 'Forwarder Filters',
         nav_password: 'Password',
+        bot_title: 'Control bot',
+        bot_desc: 'Create a bot via BotFather, paste the token, then DM links or message IDs to queue jobs. Complements the Telethon forwarder; private chat only. Lifecycle notifies need one prior DM.',
+        bot_enabled: 'Enabled',
+        bot_token: 'Bot token',
+        bot_token_keep: 'Leave blank to keep',
+        bot_status: 'Status',
+        bot_saved: 'Saved',
         logout: 'Log out',
         eyebrow: 'Media archive workbench',
         lang_zh: '中文',
@@ -3205,7 +3394,8 @@ INDEX_HTML = r"""<!doctype html>
       if (I18N.zh && I18N.zh[key] != null) return I18N.zh[key];
       return key;
     }
-    function applyI18n(lang) {
+    function applyI18n(lang, opts) {
+      const persistServer = !!(opts && opts.persistServer);
       currentLang = (lang === 'en') ? 'en' : 'zh';
       try { localStorage.setItem('tgdl_lang', currentLang); } catch (e) {}
       document.documentElement.lang = currentLang === 'zh' ? 'zh-CN' : 'en';
@@ -3228,11 +3418,14 @@ INDEX_HTML = r"""<!doctype html>
       document.querySelectorAll('.lang-btn').forEach(btn => {
         btn.classList.toggle('active', btn.getAttribute('data-lang') === currentLang);
       });
+      if (persistServer) {
+        api('/api/config', { method: 'PUT', body: JSON.stringify({ ui_lang: currentLang }) }).catch(() => {});
+      }
       if (typeof onI18nApplied === 'function') onI18nApplied();
     }
     function bindLangSwitch() {
       document.querySelectorAll('.lang-btn').forEach(btn => {
-        btn.addEventListener('click', () => applyI18n(btn.getAttribute('data-lang')));
+        btn.addEventListener('click', () => applyI18n(btn.getAttribute('data-lang'), { persistServer: true }));
       });
     }
 
@@ -3251,6 +3444,7 @@ INDEX_HTML = r"""<!doctype html>
         paths: t('nav_paths'),
         sources: t('nav_sources'),
         telegram: t('nav_telegram'),
+        bot: t('nav_bot'),
         filters: t('nav_filters'),
         password: t('nav_password')
       };
@@ -3302,6 +3496,9 @@ INDEX_HTML = r"""<!doctype html>
       document.getElementById('downloadDir').value = data.download_dir || '';
       const maxJobs = Number(data.max_concurrent_jobs);
       document.getElementById('maxConcurrentJobs').value = Number.isFinite(maxJobs) && maxJobs >= 1 ? maxJobs : 1;
+      if (data.ui_lang === 'en' || data.ui_lang === 'zh') {
+        applyI18n(data.ui_lang);
+      }
     }
     function applyTelegramConfig(data, { resetHash = true } = {}) {
       if (!data) return;
@@ -3317,6 +3514,32 @@ INDEX_HTML = r"""<!doctype html>
       const data = await api('/api/telegram/config');
       lastTelegramConfig = data;
       applyTelegramConfig(data, { resetHash: true });
+    }
+    async function loadBotConfig() {
+      const data = await api('/api/bot/config');
+      document.getElementById('botEnabled').checked = !!data.enabled;
+      document.getElementById('botToken').value = '';
+      document.getElementById('botToken').placeholder = data.token_set
+        ? (data.token_hint || t('bot_token_keep'))
+        : t('bot_token_keep');
+      const st = data.status || {};
+      const parts = [
+        t('bot_status') + ': ' + (st.running ? t('status_running') : t('status_missing')),
+        st.error ? String(st.error).slice(0, 120) : '',
+        st.last_update_at || ''
+      ].filter(Boolean);
+      document.getElementById('botStatusLine').textContent = parts.join(' · ');
+    }
+    async function saveBotConfig() {
+      const el = document.getElementById('botMessage'); el.className = 'message';
+      try {
+        const body = { enabled: document.getElementById('botEnabled').checked };
+        const token = document.getElementById('botToken').value.trim();
+        if (token) body.token = token;
+        await api('/api/bot/config', { method: 'PUT', body: JSON.stringify(body) });
+        el.textContent = t('bot_saved');
+        await loadBotConfig();
+      } catch (err) { el.className = 'message error'; el.textContent = err.message; }
     }
     function applyForwarderFilters(data) {
       if (!data) return;
@@ -3687,6 +3910,7 @@ INDEX_HTML = r"""<!doctype html>
     document.getElementById('saveSourcesBtn').addEventListener('click', saveSources);
     document.getElementById('saveConfigBtn').addEventListener('click', saveConfig);
     document.getElementById('saveTelegramBtn').addEventListener('click', saveTelegramConfig);
+    document.getElementById('saveBotBtn').addEventListener('click', saveBotConfig);
     document.getElementById('saveForwarderFiltersBtn').addEventListener('click', saveForwarderFilters);
     document.getElementById('sendTelegramCodeBtn').addEventListener('click', sendTelegramCode);
     document.getElementById('confirmTelegramCodeBtn').addEventListener('click', confirmTelegramCode);
@@ -3715,7 +3939,7 @@ INDEX_HTML = r"""<!doctype html>
     bindLangSwitch();
     applyI18n(resolveLang());
     showPage((location.hash || '#downloads').slice(1));
-    loadMe(); loadConfig(); loadTelegramConfig(); loadForwarderFilters(); loadSources(); refreshAll(); setInterval(refreshAll, 2500);
+    loadMe(); loadConfig(); loadTelegramConfig(); loadBotConfig(); loadForwarderFilters(); loadSources(); refreshAll(); setInterval(refreshAll, 2500);
   </script>
 </body>
 </html>
@@ -5228,11 +5452,18 @@ class RequestHandler(BaseHTTPRequestHandler):
                 {
                     "download_dir": str(self.config_store.get_download_dir()),
                     "max_concurrent_jobs": self.config_store.get_max_concurrent_jobs(),
+                    "ui_lang": self.config_store.get_ui_lang(),
                 }
             )
         if parsed.path == "/api/telegram/config":
             return self.send_json(
                 public_telegram_config(self.config_store.get_telegram_config())
+            )
+        if parsed.path == "/api/bot/config":
+            bot = getattr(self.server, "bot_controller", None)
+            status = bot.status() if bot is not None else None
+            return self.send_json(
+                public_bot_config(self.config_store.get_bot_config(), status=status)
             )
         if parsed.path == "/api/sources":
             return self.send_json(
@@ -5563,15 +5794,22 @@ class RequestHandler(BaseHTTPRequestHandler):
         if parsed.path == "/api/config":
             try:
                 payload = self.read_json()
-                download_dir = self.config_store.set_download_dir(
-                    str(payload.get("download_dir") or "")
-                )
+                if "download_dir" in payload and str(payload.get("download_dir") or "").strip():
+                    download_dir = self.config_store.set_download_dir(
+                        str(payload.get("download_dir") or "")
+                    )
+                else:
+                    download_dir = self.config_store.get_download_dir()
                 if "max_concurrent_jobs" in payload:
                     max_jobs = self.config_store.set_max_concurrent_jobs(
                         payload.get("max_concurrent_jobs")
                     )
                 else:
                     max_jobs = self.config_store.get_max_concurrent_jobs()
+                if "ui_lang" in payload:
+                    ui_lang = self.config_store.set_ui_lang(payload.get("ui_lang"))
+                else:
+                    ui_lang = self.config_store.get_ui_lang()
                 pool = getattr(self.server, "worker_pool", None)
                 if pool is not None:
                     pool.resize(max_jobs)
@@ -5579,6 +5817,7 @@ class RequestHandler(BaseHTTPRequestHandler):
                     {
                         "download_dir": str(download_dir),
                         "max_concurrent_jobs": max_jobs,
+                        "ui_lang": ui_lang,
                     }
                 )
             except Exception as exc:  # noqa: BLE001 - API boundary
@@ -5590,6 +5829,23 @@ class RequestHandler(BaseHTTPRequestHandler):
                     dict(payload), preserve_secret=True
                 )
                 return self.send_json(public_telegram_config(config))
+            except Exception as exc:  # noqa: BLE001 - API boundary
+                return self.send_error_text(HTTPStatus.BAD_REQUEST, str(exc))
+        if parsed.path == "/api/bot/config":
+            try:
+                payload = self.read_json()
+                token = payload.get("token")
+                clear_token = bool(payload.get("clear_token"))
+                config = self.config_store.set_bot_config(
+                    enabled=payload.get("enabled"),
+                    token=None if token is None else str(token),
+                    preserve_token=not clear_token,
+                )
+                bot = getattr(self.server, "bot_controller", None)
+                if bot is not None:
+                    bot.reload()
+                status = bot.status() if bot is not None else None
+                return self.send_json(public_bot_config(config, status=status))
             except Exception as exc:  # noqa: BLE001 - API boundary
                 return self.send_error_text(HTTPStatus.BAD_REQUEST, str(exc))
         if parsed.path == "/api/sources":
@@ -5776,6 +6032,7 @@ class DownloadServer(ThreadingHTTPServer):
         auth_manager: AuthManager,
         cookie_secure: bool = COOKIE_SECURE,
         worker_pool: DownloadWorkerPool | None = None,
+        bot_controller: BotController | None = None,
     ):
         super().__init__(address, handler)
         self.store = store
@@ -5783,6 +6040,7 @@ class DownloadServer(ThreadingHTTPServer):
         self.auth_manager = auth_manager
         self.cookie_secure = cookie_secure
         self.worker_pool = worker_pool
+        self.bot_controller = bot_controller
 
 
 def run_server(host: str = DEFAULT_HOST, port: int = DEFAULT_PORT) -> None:
@@ -5799,6 +6057,17 @@ def run_server(host: str = DEFAULT_HOST, port: int = DEFAULT_PORT) -> None:
     )
     worker_pool.start()
 
+    bot_controller = BotController(
+        store,
+        config_store,
+        stop_event=stop_event,
+        worker_pool=worker_pool,
+        is_telegram_url=is_telegram_url,
+        parse_urls=parse_urls,
+    )
+    store.on_job_finished = bot_controller.notify_job_finished
+    bot_controller.start()
+
     httpd = DownloadServer(
         (host, port),
         RequestHandler,
@@ -5806,9 +6075,14 @@ def run_server(host: str = DEFAULT_HOST, port: int = DEFAULT_PORT) -> None:
         config_store,
         auth_manager,
         worker_pool=worker_pool,
+        bot_controller=bot_controller,
     )
 
     def stop(signum: int, frame: Any) -> None:  # noqa: ARG001
+        try:
+            bot_controller.send_graceful_stop()
+        except Exception:  # noqa: BLE001
+            pass
         stop_event.set()
         threading.Thread(target=httpd.shutdown, daemon=True).start()
 
@@ -5819,8 +6093,13 @@ def run_server(host: str = DEFAULT_HOST, port: int = DEFAULT_PORT) -> None:
     try:
         httpd.serve_forever()
     finally:
+        try:
+            bot_controller.send_graceful_stop()
+        except Exception:  # noqa: BLE001
+            pass
         stop_event.set()
         httpd.server_close()
+        bot_controller.join(timeout=2.0)
         worker_pool.join(timeout=6.0)
 
 
