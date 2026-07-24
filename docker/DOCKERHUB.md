@@ -16,6 +16,11 @@ export DOCKERHUB_TOKEN=...
 python scripts/update_dockerhub_overview.py
 ```
 
+`DOCKERHUB_TOKEN` must be a Docker Hub **Access Token with Read & Write**
+(account → Security → New Access Token). A token that can only push images may
+return `403 insufficient scope` on Overview updates; recreate and update the
+GitHub secret if that happens.
+
 Keep this file in sync with `CHANGELOG.md` and the README Docker section when
 shipping a new version.
 

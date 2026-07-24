@@ -95,30 +95,46 @@ def hub_patch_repo(
             "full_description": full_description,
         }
     ).encode("utf-8")
-    req = urllib.request.Request(
-        url,
-        data=body,
-        headers={
-            "Content-Type": "application/json",
-            "Authorization": f"JWT {token}",
-        },
-        method="PATCH",
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=60) as resp:
-            raw = resp.read().decode("utf-8")
-            code = resp.status
-    except urllib.error.HTTPError as exc:
-        detail = exc.read().decode("utf-8", "replace")
-        raise SystemExit(f"Docker Hub PATCH failed: HTTP {exc.code}: {detail}") from exc
-    print(f"Updated https://hub.docker.com/r/{namespace}/{repository}/ (HTTP {code})")
-    if raw:
+    # Hub accepts JWT from /v2/users/login/; some tokens also work as Bearer.
+    last_error = ""
+    for auth in (f"JWT {token}", f"Bearer {token}"):
+        req = urllib.request.Request(
+            url,
+            data=body,
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": auth,
+            },
+            method="PATCH",
+        )
         try:
-            data = json.loads(raw)
-            print("short:", (data.get("description") or "")[:100])
-            print("full_len:", len(data.get("full_description") or ""))
-        except json.JSONDecodeError:
-            pass
+            with urllib.request.urlopen(req, timeout=60) as resp:
+                raw = resp.read().decode("utf-8")
+                code = resp.status
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", "replace")
+            last_error = f"HTTP {exc.code}: {detail}"
+            if exc.code in {401, 403}:
+                continue
+            raise SystemExit(f"Docker Hub PATCH failed: {last_error}") from exc
+        print(f"Updated https://hub.docker.com/r/{namespace}/{repository}/ (HTTP {code})")
+        if raw:
+            try:
+                data = json.loads(raw)
+                print("short:", (data.get("description") or "")[:100])
+                print("full_len:", len(data.get("full_description") or ""))
+            except json.JSONDecodeError:
+                pass
+        return
+
+    raise SystemExit(
+        "Docker Hub PATCH failed (auth): "
+        f"{last_error}\n"
+        "Login succeeded but the token cannot update repository metadata.\n"
+        "Recreate a Docker Hub Access Token with Read & Write (not Read-only),\n"
+        "update GitHub secret DOCKERHUB_TOKEN, then re-run workflow "
+        "'Docker Hub Overview'. Image push-only tokens often hit insufficient scope."
+    )
 
 
 def main() -> int:
