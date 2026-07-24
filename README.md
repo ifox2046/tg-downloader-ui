@@ -6,8 +6,9 @@ Lightweight web UI and automation layer for Telegram downloads with
 [`iyear/tdl`](https://github.com/iyear/tdl).
 
 `tdl` is the downloader runtime. This project provides a small web console,
-job history, path/source settings, and an optional Telegram forwarder. It is
-not affiliated with Telegram and is not an official `tdl` project.
+job history, path/source settings, an optional Telegram forwarder, and an
+optional **control bot** (Bot API) for private-DM download control. It is not
+affiliated with Telegram and is not an official `tdl` project.
 
 This is a local-first service. The Python application binds to loopback by
 default, and Docker Compose publishes only on `127.0.0.1` by default. Do not
@@ -17,12 +18,16 @@ proxy or VPN when remote access is required.
 ## Modes
 
 - Basic download mode: install and log in to `tdl`, configure a download
-  directory and source chats, then submit Telegram message IDs in the web UI.
+  directory and source chats, then submit Telegram message IDs, `t.me` URLs, or
+  export JSON in the web UI.
 - Optional forwarder mode: additionally configure your own Telegram API
   credentials, a Telethon session, source users/bots, and a target channel.
+- Optional control bot: paste a BotFather token in the Web UI, then enqueue and
+  track jobs from a **private** Telegram chat (no browser required).
 
 The forwarder is only needed if you want this service to listen for messages
-and forward summaries into your own channel.
+and forward summaries into your own channel. The control bot does **not**
+replace the forwarder; it only talks to the same job queue.
 
 ### Download input modes
 
@@ -162,18 +167,35 @@ You do **not** need the forwarder if you already know the message IDs. You do
 
 ### Optional: control bot (Bot API)
 
+Use a BotFather bot as a **private-DM remote control** for the same job queue as
+the Web UI (URL and message-ID modes only; export-file remains Web-only).
+
+**Setup**
+
 1. Create a bot with [@BotFather](https://t.me/BotFather) and copy the token.
 2. In the Web UI open **控制 Bot** / Control bot, paste the token, enable, save.
+   The token is stored under `config.json` (`bot`) and is masked on reload.
 3. Open a **private** chat with the bot and send `/help`.
-4. Send a `https://t.me/...` link or a numeric message ID to queue a job (same
-   pipeline as the Web UI). With multiple enabled sources, pick a source from
-   the inline keyboard before message-ID download.
-5. Use `/jobs`, `/status <id>`, `/cancel <id>` as needed. Groups are ignored.
+4. Send a `https://t.me/...` link or a numeric message ID (or `/dl <url|id>`) to
+   queue a job. With **two or more enabled sources**, message-ID flow shows an
+   inline keyboard to pick the source before create.
+5. Use English commands: `/jobs`, `/status <id>`, `/cancel <id>` (`/cancel` is
+   cancel, not pause). Groups and channels are ignored.
 
-Lifecycle messages (online / graceful stop / Telegram API restored / backend
-health) require at least one prior private DM so `notify_chat_id` is stored.
-Hard process kills cannot notify. This bot **complements** the Telethon
-forwarder; it does not replace channel summaries.
+**Behavior (v0.1.4)**
+
+| Topic | Detail |
+| --- | --- |
+| Pipeline | Creates/queries/cancels via `JobStore` / workers only — same as Web |
+| Ack + terminal notify | Reply on enqueue with job id; **one** push on done/failed/canceled (no progress spam) |
+| Open-job dedupe | Same URL (canonical `t.me` key) or same message id + source while still queued/exporting/downloading/renaming/paused is rejected; finished jobs can be re-queued |
+| Proxy | Uses the same Telegram proxy chain as tdl/Telethon: `TGDL_TELEGRAM_PROXY` → `TGDL_PROXY` → `TGDL_TDL_PROXY` → Web `telegram.proxy` |
+| Lifecycle notifies | Online, graceful stop, Telegram API restored, backend unhealthy/restored (health every 5 min, 2 consecutive fails). Needs a prior private DM so `notify_chat_id` is stored. Hard kills cannot notify |
+| Language | Command names stay English; reply text follows the Web UI language setting (`ui_lang` / language switch) |
+| Single token | Do **not** run the same BotFather token on two processes (e.g. Docker + router) — Telegram returns `409 Conflict` on `getUpdates` |
+
+This bot **complements** the Telethon forwarder; it does not replace channel
+summaries.
 
 ## Pause and Recovery Semantics
 
@@ -227,33 +249,50 @@ Persistent Docker paths:
 These host directories must be writable by UID/GID `1000`. The container runs
 the application as that non-root user after preparing the mount roots.
 
-The published Docker image is multi-architecture (`linux/amd64` and
-`linux/arm64`) under one name on Docker Hub:
+### Docker Hub image (`ifox2046/tg-downloader-ui`)
+
+Published multi-architecture image (`linux/amd64` and `linux/arm64`) under one
+name on [Docker Hub](https://hub.docker.com/r/ifox2046/tg-downloader-ui):
 
 ```text
 ifox2046/tg-downloader-ui:0.1.4
 ifox2046/tg-downloader-ui:latest
 ```
 
-Each platform installs a checksum-verified, unmodified upstream `tdl` `0.20.3`
-binary for that architecture (`tdl_Linux_64bit.tar.gz` on amd64,
-`tdl_Linux_arm64.tar.gz` on arm64). Local `docker compose build` / plain
-`docker build` on an amd64 host still works without Buildx.
+| Tag | Meaning |
+| --- | --- |
+| `0.1.4` | Immutable release pin for this version |
+| `latest` | Points at the newest published release (currently 0.1.4) |
+
+**What is inside (0.1.4)**
+
+- Web UI + job history (message ID, `t.me` URL, export-file modes)
+- Optional Telethon forwarder (default on in the image; disable with
+  `TGDL_FORWARDER_ENABLED=0`)
+- Optional **control bot** (Bot API): enable in Web UI with a BotFather token;
+  private-DM enqueue/status/cancel; terminal + lifecycle notifies
+- Open-job dedupe for duplicate URL / message-id+source while a job is still
+  open
+- Checksum-verified, unmodified upstream `tdl` `0.20.3` per architecture
+  (`tdl_Linux_64bit.tar.gz` on amd64, `tdl_Linux_arm64.tar.gz` on arm64)
 
 ```sh
 docker pull ifox2046/tg-downloader-ui:0.1.4
 ```
 
-The container starts the Web UI and optional forwarder by default; set
-`TGDL_FORWARDER_ENABLED=0` to opt out of the forwarder. The forwarder restart
-button restarts the in-container forwarder process; it does not need the Docker
-socket.
+Local `docker compose build` / plain `docker build` on an amd64 host still works
+without Buildx. The container starts the Web UI and optional forwarder by
+default. The forwarder restart button restarts the in-container forwarder
+process; it does not need the Docker socket.
 
 Multi-arch images are built and pushed from GitHub Actions only on version tags
 or releases (workflow `Docker Publish`). PR/main CI builds both platforms to
 verify the Dockerfile without pushing. Repository secrets
 `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` are required for publish; they are
 never stored in this repository.
+
+Paste text for the Hub **Overview** tab (manual after each release) is in
+[docker/DOCKERHUB.md](docker/DOCKERHUB.md).
 
 ## tdl Login
 

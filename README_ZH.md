@@ -4,16 +4,18 @@
 
 基于 [`iyear/tdl`](https://github.com/iyear/tdl) 的轻量级 Telegram 下载 Web UI 与自动化层。
 
-`tdl` 是实际的下载运行时。本项目提供简洁的 Web 控制台、任务历史、路径与来源设置，以及可选的 Telegram 转发器。本项目与 Telegram 无关联，也不是 `tdl` 官方项目。
+`tdl` 是实际的下载运行时。本项目提供简洁的 Web 控制台、任务历史、路径与来源设置、可选的 Telethon 转发器，以及可选的 **Telegram 控制 Bot**（Bot API，私聊入队/查询/取消）。本项目与 Telegram 无关联，也不是 `tdl` 官方项目。
 
 本服务以本地优先为原则。Python 应用默认仅监听回环地址，Docker Compose 默认也只发布到 `127.0.0.1`。请勿将服务直接暴露到公网；需要远程访问时，请使用可信的 HTTPS 反向代理或 VPN。
 
 ## 运行模式
 
-- 基础下载模式：安装并登录 `tdl`，配置下载目录和来源会话，然后在 Web UI 中提交 Telegram 消息 ID。
+- 基础下载模式：安装并登录 `tdl`，配置下载目录和来源会话，然后在 Web UI 中提交消息 ID（或链接 / 导出文件）。
 - 可选转发模式：额外配置你自己的 Telegram API 凭据、Telethon 会话、来源用户或机器人，以及目标频道。
+- 可选 **控制 Bot** 模式（v0.1.4+）：用 BotFather 创建的 Bot，私聊入队/取消/查询任务，无需打开 Web UI。与 Telethon 转发器独立（不同 token、不同协议）。
 
-只有在希望本服务监听消息并将摘要转发到你自己的频道时，才需要启用转发器。
+只有在希望本服务监听消息并将摘要转发到你自己的频道时，才需要启用转发器。  
+只有在希望直接从 Telegram 发指令管理下载时，才需要启用控制 Bot。
 
 ### 下载输入模式
 
@@ -128,15 +130,32 @@ Message ID: 26933
 若你已经知道消息 ID，可以不启用转发器。  
 若只做 `tdl` 下载，不需要 Telegram API 凭据。
 
-### 可选：控制 Bot（Bot API）
+### 可选：控制 Bot（Bot API）— v0.1.4+
+
+通过官方 Bot API 提供**私聊**远程控制台（与 Web UI 同一 job 队列；仅 URL / 消息 ID 模式，导出文件仍仅 Web）。命令名为**英文**；回复文案跟随 Web 界面语言。
+
+**配置步骤**
 
 1. 用 [@BotFather](https://t.me/BotFather) 创建 bot 并复制 token。
-2. Web UI 打开「控制 Bot」，粘贴 token，启用并保存。
+2. Web UI 打开「控制 Bot」，粘贴 token，启用并保存（token 写入状态目录下 `config.json` 的 `bot` 字段；界面仅显示掩码）。
 3. 与 bot **私聊**，发送 `/help`。
-4. 发送 `https://t.me/...` 链接或数字消息 ID 即可入队（与 Web 同一 job 管线）。多来源启用时，消息 ID 会先弹出内联键盘选择来源。
-5. 可用 `/jobs`、`/status <id>`、`/cancel <id>`；群聊消息会被忽略。
+4. 入队：
+   - `https://t.me/...` 链接，或 `/dl <url>` → 一个 `url` 任务（与 Web 链接模式 / export-pin 语义相同）。
+   - 正整数消息 ID，或 `/dl <id>` → `message_id` 任务；若启用了 **两个及以上** 来源，会先以内联键盘选择来源。
+5. 命令：`/jobs`、`/status <id>`、`/cancel <id>`（`/cancel` 为取消，不是暂停）。群聊/频道消息忽略。MVP 无用户白名单。
 
-上线/优雅停机/Telegram API 恢复/后端健康等通知，需至少私聊过一次（写入 `notify_chat_id`）。进程被强杀时无法通知。控制 Bot **与** Telethon 转发器并存，不替代频道摘要流程。
+**行为说明（v0.1.4）**
+
+| 主题 | 说明 |
+| --- | --- |
+| 管线 | 仅通过 `JobStore` / 既有 worker 创建与查询，与 Web 一致 |
+| 通知 | 入队回复 job id；任务 **done/failed/canceled** 各推送一次终态消息（无进度刷屏） |
+| 活跃去重 | 同一规范 URL（chat+message）或同一 message_id+source，在 queued/exporting/downloading/renaming/paused 期间重复入队会被拒绝；终态后可再次入队 |
+| 代理 | 与 tdl/Telethon 相同：`TGDL_TELEGRAM_PROXY` → `TGDL_PROXY` → `TGDL_TDL_PROXY` → Web `telegram.proxy` |
+| 生命周期 | 上线 / 优雅停机 / Telegram API 恢复 / 后端异常与恢复（健康探测 5 分钟一次，连续 2 次失败）。需至少私聊一次以写入 `notify_chat_id`；强杀无法通知 |
+| 单 token | **不要**在两个进程/主机上同时使用同一 BotFather token（如 Docker + 路由器），否则 Telegram `getUpdates` 返回 409 Conflict |
+
+控制 Bot **与** Telethon 转发器并存，**不**替代频道摘要流程。
 
 ## 暂停与恢复语义
 
@@ -177,22 +196,37 @@ Docker 持久化路径：
 
 这些宿主机目录必须允许 UID/GID `1000` 写入。容器准备好挂载根目录后，会以该非 root 用户运行应用。
 
-发布的 Docker 镜像为多架构（`linux/amd64` 与 `linux/arm64`），在 Docker Hub 上共用同一镜像名与标签：
+### Docker Hub 镜像（`ifox2046/tg-downloader-ui`）
+
+多架构镜像（`linux/amd64` 与 `linux/arm64`）在 [Docker Hub](https://hub.docker.com/r/ifox2046/tg-downloader-ui) 共用同一名称与标签：
 
 ```text
 ifox2046/tg-downloader-ui:0.1.4
 ifox2046/tg-downloader-ui:latest
 ```
 
-各平台在构建时安装对应架构、经校验的上游未修改 `tdl 0.20.3` 二进制（amd64 为 `tdl_Linux_64bit.tar.gz`，arm64 为 `tdl_Linux_arm64.tar.gz`）。在 amd64 主机上本地 `docker compose build` / 普通 `docker build` 仍可直接使用，无需 Buildx。
+| 标签 | 含义 |
+| --- | --- |
+| `0.1.4` | 本版本固定 pin |
+| `latest` | 指向最新已发布版本（当前为 0.1.4） |
+
+**0.1.4 镜像内容**
+
+- Web UI + 任务历史（消息 ID、`t.me` 链接、导出文件三种模式）
+- 可选 Telethon 转发器（镜像默认开启；`TGDL_FORWARDER_ENABLED=0` 可关）
+- 可选 **控制 Bot**（Bot API）：在 Web UI 填入 BotFather token 后启用；私聊入队/查询/取消；终态与生命周期通知
+- 活跃任务 URL / 消息 ID 去重
+- 各架构校验过的未修改上游 `tdl 0.20.3`（amd64：`tdl_Linux_64bit.tar.gz`；arm64：`tdl_Linux_arm64.tar.gz`）
 
 ```sh
 docker pull ifox2046/tg-downloader-ui:0.1.4
 ```
 
-容器默认启动 Web UI 和可选转发器；设置 `TGDL_FORWARDER_ENABLED=0` 可关闭转发器。转发器重启按钮只会重启容器内的转发进程，不需要访问 Docker socket。
+在 amd64 主机上本地 `docker compose build` / `docker build` 无需 Buildx。容器默认启动 Web UI 与可选转发器；转发器重启按钮只重启容器内转发进程，不需要 Docker socket。控制 Bot 在进程内运行，无需第二个容器。
 
 多架构镜像仅在版本 tag 或 GitHub Release 时由 Actions 推送（工作流 `Docker Publish`）。PR/main 的 CI 会构建 amd64 与 arm64 以校验 Dockerfile，但不会推送。推送需要仓库密钥 `DOCKERHUB_USERNAME` 与 `DOCKERHUB_TOKEN`，切勿写入本仓库。
+
+**Docker Hub 仓库简介**（发版后需手动粘贴到 Hub Overview，CI 不会更新）：见 [docker/DOCKERHUB.md](docker/DOCKERHUB.md)。
 
 ## tdl 登录
 
