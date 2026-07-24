@@ -1,8 +1,20 @@
-# Docker Hub repository text (manual)
+# Docker Hub repository text
 
-Hub Overview is **not** updated by CI. After each release, paste the blocks below
-into [ifox2046/tg-downloader-ui](https://hub.docker.com/r/ifox2046/tg-downloader-ui)
-(short description + full description / Overview).
+Source of truth for the Hub **short description** and **full Overview**.
+
+CI updates Hub automatically:
+
+- On image publish (workflow `Docker Publish`) after multi-arch push
+- On push to `main` that touches this file (workflow `Docker Hub Overview`)
+- Manual: Actions → **Docker Hub Overview** → Run workflow
+
+Local / one-off (needs Hub credentials):
+
+```sh
+export DOCKERHUB_USERNAME=...
+export DOCKERHUB_TOKEN=...
+python scripts/update_dockerhub_overview.py
+```
 
 Keep this file in sync with `CHANGELOG.md` and the README Docker section when
 shipping a new version.

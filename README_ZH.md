@@ -226,7 +226,7 @@ docker pull ifox2046/tg-downloader-ui:0.1.4
 
 多架构镜像仅在版本 tag 或 GitHub Release 时由 Actions 推送（工作流 `Docker Publish`）。PR/main 的 CI 会构建 amd64 与 arm64 以校验 Dockerfile，但不会推送。推送需要仓库密钥 `DOCKERHUB_USERNAME` 与 `DOCKERHUB_TOKEN`，切勿写入本仓库。
 
-**Docker Hub 仓库简介**（发版后需手动粘贴到 Hub Overview，CI 不会更新）：见 [docker/DOCKERHUB.md](docker/DOCKERHUB.md)。
+**Docker Hub 仓库简介**由 [docker/DOCKERHUB.md](docker/DOCKERHUB.md) 维护，CI（`Docker Publish` / `Docker Hub Overview`）通过 Hub API 自动同步（与推镜像共用 `DOCKERHUB_*` secrets）。
 
 ## tdl 登录
 

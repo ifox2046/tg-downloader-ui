@@ -291,8 +291,9 @@ verify the Dockerfile without pushing. Repository secrets
 `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` are required for publish; they are
 never stored in this repository.
 
-Paste text for the Hub **Overview** tab (manual after each release) is in
-[docker/DOCKERHUB.md](docker/DOCKERHUB.md).
+**Docker Hub repository description** is maintained in
+[docker/DOCKERHUB.md](docker/DOCKERHUB.md) and synced by CI (`Docker Publish` /
+`Docker Hub Overview`) via the Hub API (same `DOCKERHUB_*` secrets as image push).
 
 ## tdl Login
 

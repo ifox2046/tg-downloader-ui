@@ -73,3 +73,11 @@ jobs:
             ${{ env.IMAGE_NAME }}:latest
           build-args: |
             TDL_VERSION=0.20.3
+
+      - name: Update Docker Hub repository overview
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+          DOCKERHUB_NAMESPACE: ifox2046
+          DOCKERHUB_REPOSITORY: tg-downloader-ui
+        run: python3 scripts/update_dockerhub_overview.py

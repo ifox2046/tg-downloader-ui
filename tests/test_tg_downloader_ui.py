@@ -2861,6 +2861,29 @@ class DockerComposeTests(unittest.TestCase):
         self.assertIn("push: true", publish)
         self.assertIn("tags:", publish)
         self.assertIn(":latest", publish)
+        self.assertIn("update_dockerhub_overview.py", publish)
+
+        overview = Path(".github/workflows/dockerhub-overview.yml").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("update_dockerhub_overview.py", overview)
+        self.assertIn("workflow_dispatch", overview)
+
+    def test_dockerhub_md_parser_extracts_short_and_full(self):
+        import importlib.util
+
+        path = Path("scripts/update_dockerhub_overview.py")
+        spec = importlib.util.spec_from_file_location("update_dockerhub_overview", path)
+        mod = importlib.util.module_from_spec(spec)
+        assert spec.loader is not None
+        spec.loader.exec_module(mod)
+        short, full = mod.parse_dockerhub_md(
+            Path("docker/DOCKERHUB.md").read_text(encoding="utf-8")
+        )
+        self.assertLessEqual(len(short), 100)
+        self.assertIn("control bot", short.lower())
+        self.assertIn("tg-downloader-ui", full)
+        self.assertIn("0.1.4", full)
 
     def test_docker_context_excludes_local_secrets(self):
         ignored = Path(".dockerignore").read_text(encoding="utf-8")
